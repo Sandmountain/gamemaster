@@ -17,6 +17,14 @@ export default function ControllPage() {
     sendMessage,
   } = useWebSocket();
 
+  // Clear selected room if it no longer exists
+  useEffect(() => {
+    if (selectedRoom && !rooms.some((room) => room.id === selectedRoom)) {
+      setSelectedRoom(null);
+      setTeamName("");
+    }
+  }, [rooms, selectedRoom]);
+
   // Request rooms list when connected
   useEffect(() => {
     if (isConnected) {
@@ -28,6 +36,7 @@ export default function ControllPage() {
 
   const handleJoinRoom = (roomId: string) => {
     setSelectedRoom(roomId);
+    setTeamName(""); // Clear team name when selecting a new room
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -89,7 +98,7 @@ export default function ControllPage() {
             )}
           </div>
 
-          {selectedRoom && (
+          {selectedRoom && rooms.some((room) => room.id === selectedRoom) && (
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg max-w-md mx-auto">
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>

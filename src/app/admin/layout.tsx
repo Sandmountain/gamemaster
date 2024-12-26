@@ -7,9 +7,7 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <WebSocketProvider endpoint="ws://localhost:8000">
-      {children}
-    </WebSocketProvider>
-  );
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+
+  return <WebSocketProvider endpoint={wsUrl}>{children}</WebSocketProvider>;
 }

@@ -17,7 +17,6 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
     currentRoom: room,
     participants,
     isJoined,
-    error,
     joinRoom,
     loadQuiz,
     sendMessage,
@@ -54,7 +53,14 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
     }
   };
 
-  const handleDeleteRoom = () => {
+  const handleDeleteRoom = async () => {
+    // First ensure we have admin rights
+    joinRoom(roomId, "admin");
+
+    // Small delay to ensure join message is processed
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Then send delete request
     sendMessage({
       type: "delete_room",
       roomId,
@@ -125,12 +131,6 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
         <div className="md:col-span-2">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg">
             <h1 className="text-2xl font-bold mb-6">{room.name}</h1>
-
-            {error && (
-              <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
-                <p className="text-yellow-700 dark:text-yellow-300">{error}</p>
-              </div>
-            )}
 
             <div className="space-y-4">
               <div className="flex items-center justify-between">
