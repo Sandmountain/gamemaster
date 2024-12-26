@@ -1,0 +1,34 @@
+{
+  "name": "Geography Quiz",
+  "questions": [
+    {
+      "question": "Where is Mount Everest located?",
+      "type": "multiple",
+      "time": 30,
+      "alternatives": [
+        "Nepal/China",
+        "India/Pakistan",
+        "Bhutan/Nepal",
+        "China/India"
+      ]
+    },
+    {
+      "question": "Point to Paris on the map",
+      "type": "geo",
+      "time": 45,
+      "alternatives": null
+    },
+    {
+      "question": "Which country has the largest population?",
+      "type": "multiple",
+      "time": 20,
+      "alternatives": ["China", "India", "United States", "Indonesia"]
+    },
+    {
+      "question": "Point to the Great Barrier Reef",
+      "type": "geo",
+      "time": 40,
+      "alternatives": null
+    }
+  ]
+}
