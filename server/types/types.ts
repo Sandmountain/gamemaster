@@ -1,4 +1,12 @@
-// Common types used by both frontend and backend
+import { WebSocket } from "ws";
+
+export interface Room {
+  id: string;
+  name: string;
+  participants: Map<WebSocket, { role: "admin" | "player" }>;
+  quiz?: Quiz;
+}
+
 export interface QuizQuestion {
   question: string;
   type: "geo" | "multiple";
@@ -9,18 +17,6 @@ export interface QuizQuestion {
 export interface Quiz {
   name: string;
   questions: QuizQuestion[];
-}
-
-export interface Participant {
-  teamName: string;
-  role: "admin" | "player";
-}
-
-export interface Room {
-  id: string;
-  name: string;
-  participantCount: number;
-  quiz?: string;
 }
 
 // WebSocket Message Types
@@ -43,12 +39,11 @@ export type WebSocketMessageType =
   | "kick_player"
   | "player_kicked";
 
-// Base Message Interface
+// Message Interfaces
 export interface BaseMessage {
   type: WebSocketMessageType;
 }
 
-// Message Interfaces
 export interface RegisterMessage extends BaseMessage {
   type: "register";
   teamName: string;
@@ -69,6 +64,25 @@ export interface RoomCreatedMessage extends BaseMessage {
   type: "room_created";
   roomId: string;
   roomName: string;
+}
+
+export interface ListRoomsMessage extends BaseMessage {
+  type: "list_rooms";
+  rooms: Array<{
+    id: string;
+    name: string;
+    participantCount: number;
+  }>;
+}
+
+export interface EchoMessage extends BaseMessage {
+  type: "echo";
+  data: unknown;
+}
+
+export interface ErrorMessage extends BaseMessage {
+  type: "error";
+  error: string;
 }
 
 export interface DeleteRoomMessage extends BaseMessage {
@@ -93,17 +107,6 @@ export interface RoomJoinedMessage extends BaseMessage {
   role: "admin" | "player";
 }
 
-export interface ListParticipantsMessage extends BaseMessage {
-  type: "list_participants";
-  roomId: string;
-}
-
-export interface ParticipantsListMessage extends BaseMessage {
-  type: "participants_list";
-  roomId: string;
-  participants: Participant[];
-}
-
 export interface LoadQuizMessage extends BaseMessage {
   type: "load_quiz";
   roomId: string;
@@ -116,9 +119,18 @@ export interface QuizLoadedMessage extends BaseMessage {
   quizName: string;
 }
 
-export interface ListRoomsMessage extends BaseMessage {
-  type: "list_rooms";
-  rooms: Room[];
+export interface ListParticipantsMessage extends BaseMessage {
+  type: "list_participants";
+  roomId: string;
+}
+
+export interface ParticipantsListMessage extends BaseMessage {
+  type: "participants_list";
+  roomId: string;
+  participants: Array<{
+    teamName: string;
+    role: "admin" | "player";
+  }>;
 }
 
 export interface KickPlayerMessage extends BaseMessage {
@@ -133,26 +145,68 @@ export interface PlayerKickedMessage extends BaseMessage {
   teamName: string;
 }
 
-export interface ErrorMessage extends BaseMessage {
-  type: "error";
-  error: string;
-}
-
 // Union type of all possible messages
 export type WebSocketMessage =
   | RegisterMessage
   | ConnectionMessage
   | CreateRoomMessage
   | RoomCreatedMessage
+  | ListRoomsMessage
   | DeleteRoomMessage
   | RoomDeletedMessage
-  | LoadQuizMessage
-  | QuizLoadedMessage
-  | ListRoomsMessage
   | JoinRoomMessage
   | RoomJoinedMessage
+  | LoadQuizMessage
+  | QuizLoadedMessage
   | ListParticipantsMessage
   | ParticipantsListMessage
   | KickPlayerMessage
   | PlayerKickedMessage
+  | EchoMessage
   | ErrorMessage;
+
+// Type guard functions
+export const isRegisterMessage = (
+  message: WebSocketMessage
+): message is RegisterMessage => {
+  return message.type === "register" && typeof message.teamName === "string";
+};
+
+export const isJoinRoomMessage = (
+  message: WebSocketMessage
+): message is JoinRoomMessage => {
+  return (
+    message.type === "join_room" &&
+    typeof message.roomId === "string" &&
+    (message.role === "admin" || message.role === "player")
+  );
+};
+
+export const isLoadQuizMessage = (
+  message: WebSocketMessage
+): message is LoadQuizMessage => {
+  return (
+    message.type === "load_quiz" &&
+    typeof message.roomId === "string" &&
+    message.quiz &&
+    Array.isArray(message.quiz.questions)
+  );
+};
+
+export const isListParticipantsMessage = (
+  message: WebSocketMessage
+): message is ListParticipantsMessage => {
+  return (
+    message.type === "list_participants" && typeof message.roomId === "string"
+  );
+};
+
+export const isKickPlayerMessage = (
+  message: WebSocketMessage
+): message is KickPlayerMessage => {
+  return (
+    message.type === "kick_player" &&
+    typeof message.roomId === "string" &&
+    typeof message.teamName === "string"
+  );
+};

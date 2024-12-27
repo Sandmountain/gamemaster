@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Quiz } from "@/types/websocket";
+import { Quiz } from "../../../../shared/types/websocket";
 import sampleQuiz from "@/data/sample-quiz.json";
 import { use } from "react";
 import { useWebSocket } from "@/contexts/WebSocketContext";

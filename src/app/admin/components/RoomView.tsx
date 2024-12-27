@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Quiz } from "@/types/websocket";
-import sampleQuiz from "@/data/sample-quiz.json";
+import { Quiz } from "@shared/types/websocket";
+import { RoomViewState } from "@/types/client";
 import { useWebSocket } from "@/contexts/WebSocketContext";
 import ConfirmModal from "@/components/ConfirmModal";
+import sampleQuiz from "@/data/sample-quiz.json";
 
 interface RoomViewProps {
   roomId: string;
@@ -12,11 +13,18 @@ interface RoomViewProps {
 }
 
 export default function RoomView({ roomId, onBack }: RoomViewProps) {
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [viewState, setViewState] = useState<RoomViewState>({
+    isDeleting: false,
+    isKicking: false,
+    selectedPlayer: null,
+  });
+
   const {
     currentRoom: room,
     participants,
     isJoined,
+    isConnected,
+    error,
     joinRoom,
     loadQuiz,
     sendMessage,
@@ -24,8 +32,10 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
 
   // Join room and request participants list
   useEffect(() => {
-    joinRoom(roomId, "admin");
-  }, [roomId, joinRoom]);
+    if (isConnected) {
+      joinRoom(roomId, "admin");
+    }
+  }, [isConnected, roomId, joinRoom]);
 
   // Request participants list when joined
   useEffect(() => {
@@ -68,6 +78,29 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
     onBack();
   };
 
+  const handleKickPlayer = (teamName: string) => {
+    setViewState((prev) => ({
+      ...prev,
+      isKicking: true,
+      selectedPlayer: teamName,
+    }));
+  };
+
+  const confirmKickPlayer = () => {
+    if (viewState.selectedPlayer) {
+      sendMessage({
+        type: "kick_player",
+        roomId,
+        teamName: viewState.selectedPlayer,
+      });
+      setViewState((prev) => ({
+        ...prev,
+        isKicking: false,
+        selectedPlayer: null,
+      }));
+    }
+  };
+
   if (!room) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg">
@@ -79,12 +112,28 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
   return (
     <>
       <ConfirmModal
-        isOpen={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
+        isOpen={viewState.isDeleting}
+        onClose={() => setViewState((prev) => ({ ...prev, isDeleting: false }))}
         onConfirm={handleDeleteRoom}
         title="Delete Room"
         message={`Are you sure you want to delete the room "${room.name}"? This action cannot be undone.`}
         confirmText="Delete"
+        cancelText="Cancel"
+      />
+
+      <ConfirmModal
+        isOpen={viewState.isKicking}
+        onClose={() =>
+          setViewState((prev) => ({
+            ...prev,
+            isKicking: false,
+            selectedPlayer: null,
+          }))
+        }
+        onConfirm={confirmKickPlayer}
+        title="Kick Player"
+        message={`Are you sure you want to kick "${viewState.selectedPlayer}" from the room?`}
+        confirmText="Kick"
         cancelText="Cancel"
       />
 
@@ -108,7 +157,9 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
           Back to Rooms
         </button>
         <button
-          onClick={() => setShowDeleteConfirm(true)}
+          onClick={() =>
+            setViewState((prev) => ({ ...prev, isDeleting: true }))
+          }
           className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
         >
           <svg
@@ -131,6 +182,12 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
         <div className="md:col-span-2">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg">
             <h1 className="text-2xl font-bold mb-6">{room.name}</h1>
+
+            {error && (
+              <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                <p className="text-yellow-700 dark:text-yellow-300">{error}</p>
+              </div>
+            )}
 
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -204,6 +261,26 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
                       )}
                     </p>
                   </div>
+                  {participant.role !== "admin" && (
+                    <button
+                      onClick={() => handleKickPlayer(participant.teamName)}
+                      className="text-red-500 hover:text-red-700 transition-colors p-2"
+                      title="Kick Player"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

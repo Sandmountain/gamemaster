@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { WebSocketMessage } from "@/types/websocket";
+import { WebSocketMessage } from "../../shared/types/websocket";
 
 interface WebSocketIndicatorProps {
   endpoint: string;

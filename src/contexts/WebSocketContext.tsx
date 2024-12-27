@@ -11,18 +11,13 @@ import React, {
 import {
   WebSocketMessage,
   Room,
-  Participant,
   ListRoomsMessage,
   Quiz,
-} from "@/types/websocket";
+} from "@shared/types/websocket";
+import { ClientRoomState, ConnectionState } from "@/types/client";
 
-interface WebSocketContextType {
-  isConnected: boolean;
-  currentRoom: Room | null;
+interface WebSocketContextType extends ClientRoomState, ConnectionState {
   rooms: Room[];
-  participants: Participant[];
-  isJoined: boolean;
-  error: string | null;
   // Actions
   joinRoom: (roomId: string, role: "admin" | "player") => void;
   leaveRoom: () => void;
@@ -32,12 +27,17 @@ interface WebSocketContextType {
 }
 
 const WebSocketContext = createContext<WebSocketContextType>({
-  isConnected: false,
-  currentRoom: null,
+  // Room State
   rooms: [],
+  currentRoom: null,
   participants: [],
   isJoined: false,
   error: null,
+  // Connection State
+  isConnected: false,
+  lastError: null,
+  reconnectAttempts: 0,
+  // Actions
   joinRoom: () => {},
   leaveRoom: () => {},
   loadQuiz: () => {},
@@ -56,22 +56,34 @@ export function WebSocketProvider({
   children,
   endpoint,
 }: WebSocketProviderProps) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [isJoined, setIsJoined] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Room State
+  const [roomState, setRoomState] = useState<ClientRoomState>({
+    currentRoom: null,
+    participants: [],
+    isJoined: false,
+    error: null,
+  });
 
+  // Connection State
+  const [connectionState, setConnectionState] = useState<ConnectionState>({
+    isConnected: false,
+    lastError: null,
+    reconnectAttempts: 0,
+  });
+
+  const [rooms, setRooms] = useState<Room[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentRoomRef = useRef<string | null>(null);
 
   const cleanupRoomState = useCallback(() => {
     currentRoomRef.current = null;
-    setCurrentRoom(null);
-    setParticipants([]);
-    setIsJoined(false);
+    setRoomState((prev) => ({
+      ...prev,
+      currentRoom: null,
+      participants: [],
+      isJoined: false,
+    }));
   }, []);
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
@@ -80,6 +92,10 @@ export function WebSocketProvider({
       socketRef.current.send(JSON.stringify(message));
     } else {
       console.warn("WebSocket is not connected");
+      setConnectionState((prev) => ({
+        ...prev,
+        lastError: "WebSocket is not connected",
+      }));
     }
   }, []);
 
@@ -95,10 +111,15 @@ export function WebSocketProvider({
   // Actions exposed to components
   const joinRoom = useCallback(
     (roomId: string, role: "admin" | "player") => {
+      if (!connectionState.isConnected) {
+        console.warn("Cannot join room: WebSocket not connected");
+        return;
+      }
+
       currentRoomRef.current = roomId;
       const room = rooms.find((r) => r.id === roomId);
       if (room) {
-        setCurrentRoom(room);
+        setRoomState((prev) => ({ ...prev, currentRoom: room }));
       }
       sendMessage({
         type: "join_room",
@@ -106,7 +127,7 @@ export function WebSocketProvider({
         role,
       });
     },
-    [rooms, sendMessage]
+    [rooms, sendMessage, connectionState.isConnected]
   );
 
   const leaveRoom = useCallback(() => {
@@ -133,8 +154,13 @@ export function WebSocketProvider({
     (event: MessageEvent) => {
       try {
         const message = JSON.parse(event.data) as WebSocketMessage;
+        console.log("Received message:", message);
 
         switch (message.type) {
+          case "connection":
+            console.log("Connection message:", message);
+            break;
+
           case "list_rooms":
             const roomsMessage = message as ListRoomsMessage;
             setRooms(roomsMessage.rooms);
@@ -143,39 +169,64 @@ export function WebSocketProvider({
                 (r) => r.id === currentRoomRef.current
               );
               if (room) {
-                setCurrentRoom(room);
+                setRoomState((prev) => ({ ...prev, currentRoom: room }));
               }
             }
             break;
 
           case "room_joined":
-            setError(null);
-            setIsJoined(true);
-            requestParticipantsList();
+            console.log("Room joined:", message);
+            setRoomState((prev) => ({
+              ...prev,
+              error: null,
+              isJoined: true,
+            }));
+            // Request participants list immediately after joining
+            if (currentRoomRef.current) {
+              requestParticipantsList();
+            }
             break;
 
           case "participants_list":
-            setParticipants(message.participants);
-            const isAdmin = message.participants.some(
-              (p) => p.role === "admin"
-            );
-            if (isAdmin) {
-              setIsJoined(true);
-            }
+            console.log("Participants list:", message);
+            setRoomState((prev) => ({
+              ...prev,
+              participants: message.participants,
+              // Set isJoined to true if we're in the participants list as admin
+              isJoined:
+                message.participants.some((p) => p.role === "admin") ||
+                prev.isJoined,
+            }));
             break;
 
           case "room_deleted":
             if (currentRoomRef.current === message.roomId) {
               cleanupRoomState();
-              setError("This room has been deleted");
+              setRoomState((prev) => ({
+                ...prev,
+                error: "This room has been deleted",
+              }));
             }
-            listRooms(); // Update rooms list
+            listRooms();
             break;
 
           case "error":
-            setError(message.error);
             if (message.error === "Room already has an admin") {
-              setIsJoined(true);
+              // If we get this error but we're the admin, ignore it
+              const isAdmin = roomState.participants.some(
+                (p) => p.role === "admin"
+              );
+              if (!isAdmin) {
+                setRoomState((prev) => ({
+                  ...prev,
+                  error: message.error,
+                }));
+              }
+            } else {
+              setRoomState((prev) => ({
+                ...prev,
+                error: message.error,
+              }));
             }
             break;
 
@@ -186,6 +237,10 @@ export function WebSocketProvider({
         }
       } catch (error) {
         console.error("Error parsing message:", error);
+        setConnectionState((prev) => ({
+          ...prev,
+          lastError: "Error parsing message",
+        }));
       }
     },
     [listRooms, requestParticipantsList, cleanupRoomState]
@@ -198,11 +253,13 @@ export function WebSocketProvider({
     const ws = new WebSocket(endpoint);
 
     ws.onopen = () => {
-      setIsConnected(true);
+      setConnectionState((prev) => ({
+        ...prev,
+        isConnected: true,
+        lastError: null,
+      }));
       socketRef.current = ws;
-      console.log("WebSocket connected");
 
-      // Restore room connection if needed
       if (currentRoomRef.current) {
         listRooms();
         requestParticipantsList();
@@ -212,9 +269,12 @@ export function WebSocketProvider({
     ws.onmessage = handleMessage;
 
     ws.onclose = () => {
-      setIsConnected(false);
+      setConnectionState((prev) => ({
+        ...prev,
+        isConnected: false,
+        reconnectAttempts: prev.reconnectAttempts + 1,
+      }));
       socketRef.current = null;
-      console.log("WebSocket disconnected");
 
       reconnectTimeoutRef.current = setTimeout(() => {
         connect();
@@ -222,6 +282,10 @@ export function WebSocketProvider({
     };
 
     ws.onerror = () => {
+      setConnectionState((prev) => ({
+        ...prev,
+        lastError: "WebSocket error occurred",
+      }));
       ws.close();
     };
   }, [endpoint, handleMessage, listRooms, requestParticipantsList]);
@@ -243,21 +307,18 @@ export function WebSocketProvider({
 
   // Poll for participants list when in a room
   useEffect(() => {
-    if (isConnected && currentRoomRef.current) {
+    if (connectionState.isConnected && currentRoomRef.current) {
       const interval = setInterval(requestParticipantsList, 5000);
       return () => clearInterval(interval);
     }
-  }, [isConnected, requestParticipantsList]);
+  }, [connectionState.isConnected, requestParticipantsList]);
 
   return (
     <WebSocketContext.Provider
       value={{
-        isConnected,
-        currentRoom,
+        ...roomState,
+        ...connectionState,
         rooms,
-        participants,
-        isJoined,
-        error,
         sendMessage,
         joinRoom,
         leaveRoom,
@@ -269,11 +330,11 @@ export function WebSocketProvider({
         <div className="fixed top-4 right-4 flex items-center gap-2 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg z-50">
           <div
             className={`w-3 h-3 rounded-full ${
-              isConnected ? "bg-green-500" : "bg-red-500"
+              connectionState.isConnected ? "bg-green-500" : "bg-red-500"
             }`}
           />
           <span className="text-sm">
-            {isConnected ? "Connected" : "Disconnected"}
+            {connectionState.isConnected ? "Connected" : "Disconnected"}
           </span>
         </div>
         {children}
