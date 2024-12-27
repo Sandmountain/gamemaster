@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useWebSocket } from "@/contexts/WebSocketContext";
 
 interface RoomsListProps {
@@ -9,7 +9,7 @@ interface RoomsListProps {
 
 export default function RoomsList({ onRoomSelect }: RoomsListProps) {
   const [roomName, setRoomName] = useState("");
-  const { isConnected, sendMessage, listRooms, rooms } = useWebSocket();
+  const { sendMessage, rooms } = useWebSocket();
 
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,15 +29,6 @@ export default function RoomsList({ onRoomSelect }: RoomsListProps) {
       roomId,
     });
   };
-
-  // Request rooms list when connected
-  useEffect(() => {
-    if (isConnected) {
-      listRooms();
-      const interval = setInterval(listRooms, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [isConnected, listRooms]);
 
   return (
     <>
@@ -90,7 +81,7 @@ export default function RoomsList({ onRoomSelect }: RoomsListProps) {
                         <p>Participants: {room.participantCount}</p>
                         {room.quiz && (
                           <p className="text-green-600 dark:text-green-400">
-                            Quiz Loaded: {room.quiz}
+                            Quiz Loaded: {room.quiz.name}
                           </p>
                         )}
                       </div>

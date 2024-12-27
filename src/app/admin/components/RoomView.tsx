@@ -32,30 +32,10 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
 
   // Join room and request participants list
   useEffect(() => {
-    if (isConnected) {
+    if (isConnected && !isJoined) {
       joinRoom(roomId, "admin");
     }
-  }, [isConnected, roomId, joinRoom]);
-
-  // Request participants list when joined
-  useEffect(() => {
-    if (isJoined) {
-      sendMessage({
-        type: "list_participants",
-        roomId,
-      });
-
-      // Poll for participants list
-      const interval = setInterval(() => {
-        sendMessage({
-          type: "list_participants",
-          roomId,
-        });
-      }, 5000);
-
-      return () => clearInterval(interval);
-    }
-  }, [isJoined, roomId, sendMessage]);
+  }, [isConnected, isJoined, roomId, joinRoom]);
 
   const handleLoadQuiz = () => {
     if (isJoined) {
@@ -104,7 +84,9 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
   if (!room) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg">
-        <p className="text-gray-600 dark:text-gray-300">Loading room...</p>
+        <p className="text-gray-600 dark:text-gray-300">
+          {error || "Loading room..."}
+        </p>
       </div>
     );
   }
@@ -203,16 +185,52 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
                     )}
                   </p>
                 </div>
+                <a
+                  href={`/view/${room.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-blue-500 hover:text-blue-600 transition-colors"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                    <path
+                      fillRule="evenodd"
+                      d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  Open View Page
+                </a>
               </div>
 
               {room.quiz ? (
-                <div className="bg-green-50 dark:bg-green-900 p-4 rounded-lg">
-                  <h3 className="font-semibold text-green-700 dark:text-green-300">
-                    Quiz Loaded: {room.quiz}
-                  </h3>
-                  <p className="text-sm text-green-600 dark:text-green-400 mt-2">
-                    {sampleQuiz.questions.length} questions
-                  </p>
+                <div className="space-y-4">
+                  <div className="bg-green-50 dark:bg-green-900 p-4 rounded-lg">
+                    <h3 className="font-semibold text-green-700 dark:text-green-300">
+                      Quiz Loaded: {room.quiz.name}
+                    </h3>
+                    <p className="text-sm text-green-600 dark:text-green-400 mt-2">
+                      {room.quiz.questions?.length || 0} questions
+                    </p>
+                  </div>
+                  {isJoined && (
+                    <button
+                      onClick={() => {
+                        sendMessage({
+                          type: "start_game",
+                          roomId: room.id,
+                        });
+                      }}
+                      className="w-full bg-blue-500 text-white py-3 px-4 rounded-md hover:bg-blue-600 transition-colors"
+                    >
+                      Start Game
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">

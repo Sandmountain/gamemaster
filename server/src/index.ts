@@ -4,14 +4,13 @@ import { WebSocket, WebSocketServer } from "ws";
 import cors from "cors";
 import dotenv from "dotenv";
 import {
-  WebSocketMessage,
   isRegisterMessage,
   isJoinRoomMessage,
   isLoadQuizMessage,
-  isListParticipantsMessage,
   isKickPlayerMessage,
 } from "../types/types";
 import { RoomManager } from "./roomManager";
+import { Participant, WebSocketMessage } from "@shared/types/websocket";
 
 // Load environment variables
 dotenv.config();
@@ -38,7 +37,7 @@ const clients = new Map<
   {
     teamName: string;
     roomId?: string;
-    role?: "admin" | "player";
+    role?: Participant["role"];
   }
 >();
 
@@ -53,6 +52,14 @@ wss.on("connection", (ws: WebSocket) => {
       message: "Connected to WebSocket server",
     })
   );
+  if (roomManager.getRooms().length > 0) {
+    ws.send(
+      JSON.stringify({
+        type: "list_rooms",
+        rooms: roomManager.getRooms(),
+      })
+    );
+  }
 
   // Handle incoming messages
   ws.on("message", (data: string) => {
@@ -74,6 +81,12 @@ wss.on("connection", (ws: WebSocket) => {
               participants: roomManager.getParticipants(room.id),
             })
           );
+          ws.send(
+            JSON.stringify({
+              type: "list_rooms",
+              rooms: roomManager.getRooms(),
+            })
+          );
           break;
 
         case "join_room":
@@ -81,13 +94,13 @@ wss.on("connection", (ws: WebSocket) => {
             const joined = roomManager.joinRoom(
               message.roomId,
               ws,
-              message.role
+              message.role as Participant["role"]
             );
             if (joined) {
               // Update client info
               const clientInfo = clients.get(ws) || { teamName: "Unknown" };
               clientInfo.roomId = message.roomId;
-              clientInfo.role = message.role;
+              clientInfo.role = message.role as Participant["role"];
               clients.set(ws, clientInfo);
 
               // Send confirmation
@@ -146,7 +159,7 @@ wss.on("connection", (ws: WebSocket) => {
               roomManager.broadcastToRoom(message.roomId, {
                 type: "quiz_loaded",
                 roomId: message.roomId,
-                quizName: message.quiz.name,
+                quiz: message.quiz,
               });
             } else {
               ws.send(
@@ -221,19 +234,6 @@ wss.on("connection", (ws: WebSocket) => {
             }
 
             console.log(`Team ${message.teamName} registered`);
-          }
-          break;
-
-        case "list_participants":
-          if (isListParticipantsMessage(message)) {
-            const participants = roomManager.getParticipants(message.roomId);
-            ws.send(
-              JSON.stringify({
-                type: "participants_list",
-                roomId: message.roomId,
-                participants,
-              })
-            );
           }
           break;
 
@@ -338,32 +338,15 @@ wss.on("connection", (ws: WebSocket) => {
 });
 
 // Basic health check endpoint
-app.get(
-  "/health",
-  (
-    _req: unknown,
-    res: {
-      json: (arg0: {
-        status: string;
-        connectedTeams: string[];
-        rooms: {
-          id: string;
-          name: string;
-          participantCount: number;
-          quiz: string;
-        }[];
-      }) => void;
-    }
-  ) => {
-    res.json({
-      status: "ok",
-      connectedTeams: Array.from(clients.values()).map(
-        (client) => client.teamName
-      ),
-      rooms: roomManager.getRooms(),
-    });
-  }
-);
+app.get("/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    connectedTeams: Array.from(clients.values()).map(
+      (client) => client.teamName
+    ),
+    rooms: roomManager.getRooms(),
+  });
+});
 
 // Start the server
 server.listen(port, () => {

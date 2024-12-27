@@ -1,18 +1,16 @@
 import { WebSocket } from "ws";
-import {
-  WebSocketMessage,
-  Quiz,
-  RoomDeletedMessage,
-} from "@shared/types/websocket";
+import { WebSocketMessage, Quiz, Participant } from "@shared/types/websocket";
 import { ServerRoom } from "../types/server";
 
 export class RoomManager {
   private rooms: Map<string, ServerRoom>;
   private clientTeamNames: Map<WebSocket, string>;
+  private gameTimers: Map<string, NodeJS.Timeout>;
 
   constructor() {
     this.rooms = new Map();
     this.clientTeamNames = new Map();
+    this.gameTimers = new Map();
   }
 
   handleMessage(ws: WebSocket, message: WebSocketMessage) {
@@ -50,36 +48,8 @@ export class RoomManager {
         case "join_room":
           console.log("Join room request:", message);
           if (this.joinRoom(message.roomId, ws, message.role)) {
-            console.log("Join successful, sending confirmation");
-            // Send join confirmation to the joiner
-            ws.send(
-              JSON.stringify({
-                type: "room_joined",
-                roomId: message.roomId,
-                role: message.role,
-              })
-            );
-
-            // Notify others in the room about the new participant
-            const teamName = this.clientTeamNames.get(ws) || "Gamemaster 🚀";
-            console.log("Broadcasting join to others, team:", teamName);
-            this.broadcastToRoomExcept(
-              message.roomId,
-              {
-                type: "connection",
-                message: `${teamName} has joined as ${message.role}`,
-              },
-              ws
-            );
-
-            // Send updated participants list to everyone
-            const participants = this.getParticipants(message.roomId);
-            console.log("Sending participants list:", participants);
-            this.broadcastToRoom(message.roomId, {
-              type: "participants_list",
-              roomId: message.roomId,
-              participants,
-            });
+            console.log("Join successful");
+            // The joinRoom method now handles sending the room_joined message
           } else {
             console.log("Join failed, sending error");
             ws.send(
@@ -103,17 +73,6 @@ export class RoomManager {
           );
           break;
 
-        case "list_participants":
-          const participants = this.getParticipants(message.roomId);
-          ws.send(
-            JSON.stringify({
-              type: "participants_list",
-              roomId: message.roomId,
-              participants,
-            })
-          );
-          break;
-
         case "delete_room":
           const role = this.getRoomRole(message.roomId, ws);
           if (role === "admin") {
@@ -130,12 +89,36 @@ export class RoomManager {
 
         case "load_quiz":
           if (this.getRoomRole(message.roomId, ws) === "admin") {
+            console.log("Loading quiz from admin");
             if (this.loadQuiz(message.roomId, message.quiz)) {
+              // Send confirmation to the admin
+              ws.send(
+                JSON.stringify({
+                  type: "quiz_loaded",
+                  roomId: message.roomId,
+                  quizName: message.quiz.name,
+                })
+              );
+
+              // Broadcast to room
               this.broadcastToRoom(message.roomId, {
                 type: "quiz_loaded",
                 roomId: message.roomId,
-                quizName: message.quiz.name,
+                quiz: message.quiz,
               });
+
+              // Update room list for everyone
+              this.broadcastToAll({
+                type: "list_rooms",
+                rooms: this.getRooms(),
+              });
+            } else {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  error: "Failed to load quiz",
+                })
+              );
             }
           } else {
             ws.send(
@@ -175,6 +158,41 @@ export class RoomManager {
             );
           }
           break;
+
+        case "start_game":
+          if (this.getRoomRole(message.roomId, ws) === "admin") {
+            const room = this.getRoom(message.roomId);
+            if (room && room.quiz) {
+              // Start the game
+              this.startGame(message.roomId);
+            } else {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  error: "No quiz loaded for this room",
+                })
+              );
+            }
+          } else {
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                error: "Only admin can start the game",
+              })
+            );
+          }
+          break;
+
+        case "leave_room":
+          this.removeParticipant(ws);
+          // Send confirmation to the client
+          ws.send(
+            JSON.stringify({
+              type: "connection",
+              message: "Left room successfully",
+            })
+          );
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -201,11 +219,34 @@ export class RoomManager {
     };
     this.rooms.set(roomId, room);
 
-    // Send initial participants list
-    this.broadcastToRoom(roomId, {
-      type: "participants_list",
-      roomId,
-      participants: this.getParticipants(roomId),
+    // Send room created message with room data
+    creator.send(
+      JSON.stringify({
+        type: "room_created",
+        roomId: room.id,
+        roomName: room.name,
+      })
+    );
+
+    // Send room joined message with room data
+    creator.send(
+      JSON.stringify({
+        type: "room_joined",
+        roomId: room.id,
+        role: "admin",
+        room: {
+          id: room.id,
+          name: room.name,
+          participantCount: 1,
+          quiz: room.quiz?.name || "",
+        },
+      })
+    );
+
+    // Broadcast room list update to all clients
+    this.broadcastToAll({
+      type: "list_rooms",
+      rooms: this.getRooms(),
     });
 
     return room;
@@ -214,19 +255,35 @@ export class RoomManager {
   removeParticipant(ws: WebSocket) {
     this.clientTeamNames.delete(ws);
     this.rooms.forEach((room, roomId) => {
-      const participantInfo = room.participants.get(ws);
-      const wasAdmin = participantInfo?.role === "admin";
-      room.participants.delete(ws);
+      if (room.participants.has(ws)) {
+        const participantInfo = room.participants.get(ws);
+        const wasAdmin = participantInfo?.role === "admin";
+        room.participants.delete(ws);
 
-      if (room.participants.size === 0) {
-        this.rooms.delete(roomId);
-      } else if (wasAdmin) {
-        // Notify remaining participants that the admin left and the role is available
-        this.broadcastToRoom(roomId, {
-          type: "connection",
-          message:
-            "Admin has disconnected. Room is now available for a new admin.",
-        });
+        if (room.participants.size === 0) {
+          this.rooms.delete(roomId);
+          // Broadcast room deletion
+          this.broadcastToAll({
+            type: "list_rooms",
+            rooms: this.getRooms(),
+          });
+        } else {
+          // Broadcast updated participant list
+          this.broadcastToRoom(roomId, {
+            type: "participants_list",
+            roomId,
+            participants: this.getParticipants(roomId),
+          });
+
+          if (wasAdmin) {
+            // Notify remaining participants that admin left
+            this.broadcastToRoom(roomId, {
+              type: "connection",
+              message:
+                "Admin has disconnected. Room is now available for a new admin.",
+            });
+          }
+        }
       }
     });
   }
@@ -234,7 +291,7 @@ export class RoomManager {
   joinRoom(
     roomId: string,
     participant: WebSocket,
-    role: "admin" | "player"
+    role: Participant["role"]
   ): boolean {
     const room = this.rooms.get(roomId);
     if (room) {
@@ -251,6 +308,35 @@ export class RoomManager {
       // Use the stored team name or a default
       const teamName = this.clientTeamNames.get(participant) || "Gamemaster 🚀";
       room.participants.set(participant, { role, teamName });
+
+      // Send join confirmation with room data
+      participant.send(
+        JSON.stringify({
+          type: "room_joined",
+          roomId,
+          role,
+          room: {
+            id: room.id,
+            name: room.name,
+            participantCount: room.participants.size,
+            quiz: room.quiz,
+          },
+        })
+      );
+
+      // Broadcast updated participant list to all room members
+      this.broadcastToRoom(roomId, {
+        type: "participants_list",
+        roomId,
+        participants: this.getParticipants(roomId),
+      });
+
+      // Broadcast room update to all connected clients
+      this.broadcastToAll({
+        type: "list_rooms",
+        rooms: this.getRooms(),
+      });
+
       return true;
     }
     return false;
@@ -261,13 +347,30 @@ export class RoomManager {
     participant: WebSocket
   ): "admin" | "player" | undefined {
     const room = this.rooms.get(roomId);
-    return room?.participants.get(participant)?.role;
+    return room?.participants.get(participant)?.role as
+      | "admin"
+      | "player"
+      | undefined;
   }
 
   loadQuiz(roomId: string, quiz: Quiz): boolean {
     const room = this.rooms.get(roomId);
     if (room) {
-      room.quiz = quiz as Quiz;
+      room.quiz = quiz;
+
+      // Send confirmation to all room members with full quiz data
+      this.broadcastToRoom(roomId, {
+        type: "quiz_loaded",
+        roomId,
+        quiz, // Send the entire quiz object
+      });
+
+      // Update room list for everyone
+      this.broadcastToAll({
+        type: "list_rooms",
+        rooms: this.getRooms(),
+      });
+
       return true;
     }
     return false;
@@ -278,7 +381,7 @@ export class RoomManager {
       id: room.id,
       name: room.name,
       participantCount: room.participants.size,
-      quiz: room.quiz?.name || "",
+      quiz: room.quiz,
     }));
   }
 
@@ -287,28 +390,34 @@ export class RoomManager {
   }
 
   deleteRoom(roomId: string): boolean {
+    if (this.gameTimers.has(roomId)) {
+      clearTimeout(this.gameTimers.get(roomId));
+      this.gameTimers.delete(roomId);
+    }
     const room = this.rooms.get(roomId);
     if (room) {
-      // Notify all participants that the room is being deleted
-      const message: RoomDeletedMessage = {
+      // First notify all participants in the room
+      this.broadcastToRoom(roomId, {
         type: "room_deleted",
         roomId,
-      };
+      });
 
-      // First notify all participants
-      this.broadcastToRoom(roomId, message);
-
-      // Then clean up participant references
+      // Clean up participant references
       room.participants.forEach((_, participant) => {
-        // Remove room reference from any connected clients
         this.clientTeamNames.delete(participant);
       });
 
-      // Finally delete the room
+      // Delete the room
       this.rooms.delete(roomId);
+
+      // Broadcast updated room list to all connected clients
+      this.broadcastToAll({
+        type: "list_rooms",
+        rooms: this.getRooms(),
+      });
+
       return true;
     }
-    console.log("Room not found");
     return false;
   }
 
@@ -347,13 +456,13 @@ export class RoomManager {
 
   getParticipants(
     roomId: string
-  ): Array<{ teamName: string; role: "admin" | "player" }> {
+  ): Array<{ teamName: string; role: Participant["role"] }> {
     const room = this.rooms.get(roomId);
     if (!room) return [];
 
     return Array.from(room.participants.entries()).map(([ws, { role }]) => ({
       teamName: this.clientTeamNames.get(ws) || "Gamemaster 🚀",
-      role,
+      role: role as Participant["role"],
     }));
   }
 
@@ -371,5 +480,67 @@ export class RoomManager {
     }
 
     return undefined;
+  }
+
+  private startGame(roomId: string) {
+    const room = this.rooms.get(roomId);
+    if (!room || !room.quiz) return;
+
+    // Clear any existing game timer
+    if (this.gameTimers.has(roomId)) {
+      clearTimeout(this.gameTimers.get(roomId));
+    }
+
+    // Notify all participants that the game is starting
+    const startTime = Date.now() + 3000; // Start in 3 seconds
+    this.broadcastToRoom(roomId, {
+      type: "game_started",
+      roomId,
+      startTime,
+    });
+
+    // Start the question sequence
+    this.gameTimers.set(
+      roomId,
+      setTimeout(() => this.showNextQuestion(roomId, 0), 3000)
+    );
+  }
+
+  private showNextQuestion(roomId: string, questionIndex: number) {
+    const room = this.rooms.get(roomId);
+    if (!room || !room.quiz) return;
+
+    const question = room.quiz.questions[questionIndex];
+    if (!question) return; // No more questions
+
+    // Send the question to all participants
+    this.broadcastToRoom(roomId, {
+      type: "show_question",
+      roomId,
+      question,
+      questionIndex,
+    });
+
+    // Schedule next question if there is one
+    if (questionIndex + 1 < room.quiz.questions.length) {
+      this.gameTimers.set(
+        roomId,
+        setTimeout(
+          () => this.showNextQuestion(roomId, questionIndex + 1),
+          question.roundTime * 1000
+        )
+      );
+    }
+  }
+
+  // New method to broadcast to all connected clients
+  private broadcastToAll(message: WebSocketMessage) {
+    this.rooms.forEach((room) => {
+      room.participants.forEach((_, participant) => {
+        if (participant.readyState === WebSocket.OPEN) {
+          participant.send(JSON.stringify(message));
+        }
+      });
+    });
   }
 }

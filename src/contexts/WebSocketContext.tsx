@@ -11,15 +11,15 @@ import React, {
 import {
   WebSocketMessage,
   Room,
-  ListRoomsMessage,
   Quiz,
+  Participant,
 } from "@shared/types/websocket";
 import { ClientRoomState, ConnectionState } from "@/types/client";
 
 interface WebSocketContextType extends ClientRoomState, ConnectionState {
   rooms: Room[];
   // Actions
-  joinRoom: (roomId: string, role: "admin" | "player") => void;
+  joinRoom: (roomId: string, role: Participant["role"]) => void;
   leaveRoom: () => void;
   loadQuiz: (roomId: string, quiz: Quiz) => void;
   listRooms: () => void;
@@ -99,40 +99,33 @@ export function WebSocketProvider({
     }
   }, []);
 
-  const requestParticipantsList = useCallback(() => {
-    if (currentRoomRef.current) {
-      sendMessage({
-        type: "list_participants",
-        roomId: currentRoomRef.current,
-      });
-    }
-  }, [sendMessage]);
-
   // Actions exposed to components
   const joinRoom = useCallback(
-    (roomId: string, role: "admin" | "player") => {
+    (roomId: string, role: Participant["role"]) => {
       if (!connectionState.isConnected) {
         console.warn("Cannot join room: WebSocket not connected");
         return;
       }
 
       currentRoomRef.current = roomId;
-      const room = rooms.find((r) => r.id === roomId);
-      if (room) {
-        setRoomState((prev) => ({ ...prev, currentRoom: room }));
-      }
       sendMessage({
         type: "join_room",
         roomId,
         role,
       });
     },
-    [rooms, sendMessage, connectionState.isConnected]
+    [connectionState.isConnected, sendMessage]
   );
 
   const leaveRoom = useCallback(() => {
-    cleanupRoomState();
-  }, [cleanupRoomState]);
+    if (currentRoomRef.current) {
+      sendMessage({
+        type: "leave_room",
+        roomId: currentRoomRef.current,
+      });
+      cleanupRoomState();
+    }
+  }, [cleanupRoomState, sendMessage]);
 
   const loadQuiz = useCallback(
     (roomId: string, quiz: Quiz) => {
@@ -162,14 +155,18 @@ export function WebSocketProvider({
             break;
 
           case "list_rooms":
-            const roomsMessage = message as ListRoomsMessage;
-            setRooms(roomsMessage.rooms);
+            console.log("Room list:", message);
+            setRooms(message.rooms);
+            // Update current room data if we're in one of the rooms
             if (currentRoomRef.current) {
-              const room = roomsMessage.rooms.find(
+              const room = message.rooms.find(
                 (r) => r.id === currentRoomRef.current
               );
               if (room) {
-                setRoomState((prev) => ({ ...prev, currentRoom: room }));
+                setRoomState((prev) => ({
+                  ...prev,
+                  currentRoom: room,
+                }));
               }
             }
             break;
@@ -180,11 +177,15 @@ export function WebSocketProvider({
               ...prev,
               error: null,
               isJoined: true,
+              currentRoom: message.room,
+              participants: [], // Reset participants, will be updated by next participants_list message
             }));
-            // Request participants list immediately after joining
-            if (currentRoomRef.current) {
-              requestParticipantsList();
-            }
+            currentRoomRef.current = message.room.id;
+            break;
+
+          case "room_created":
+            console.log("Room created:", message);
+            // Room list will be updated by the subsequent list_rooms message
             break;
 
           case "participants_list":
@@ -192,10 +193,6 @@ export function WebSocketProvider({
             setRoomState((prev) => ({
               ...prev,
               participants: message.participants,
-              // Set isJoined to true if we're in the participants list as admin
-              isJoined:
-                message.participants.some((p) => p.role === "admin") ||
-                prev.isJoined,
             }));
             break;
 
@@ -207,32 +204,55 @@ export function WebSocketProvider({
                 error: "This room has been deleted",
               }));
             }
-            listRooms();
             break;
 
           case "error":
-            if (message.error === "Room already has an admin") {
-              // If we get this error but we're the admin, ignore it
-              const isAdmin = roomState.participants.some(
-                (p) => p.role === "admin"
-              );
-              if (!isAdmin) {
-                setRoomState((prev) => ({
-                  ...prev,
-                  error: message.error,
-                }));
-              }
-            } else {
-              setRoomState((prev) => ({
-                ...prev,
-                error: message.error,
-              }));
-            }
+            console.log("Error message:", message);
+            setRoomState((prev) => ({
+              ...prev,
+              error: message.error,
+              isJoined: false,
+            }));
             break;
 
           case "quiz_loaded":
-          case "room_created":
-            listRooms();
+            console.log("Quiz loaded:", message);
+            console.log("Current room matches message roomId:", message.roomId);
+            console.log("Current room:", currentRoomRef.current);
+            if (currentRoomRef.current === message.roomId) {
+              setRoomState((prev) => {
+                console.log("Previous room state:", prev);
+                const newState = {
+                  ...prev,
+                  currentRoom: prev.currentRoom
+                    ? {
+                        ...prev.currentRoom,
+                        quiz: message.quiz,
+                      }
+                    : null,
+                };
+                console.log("New room state:", newState);
+                return newState;
+              });
+
+              // Also update the room in the rooms list
+              setRooms((prevRooms) =>
+                prevRooms.map((room) =>
+                  room.id === message.roomId
+                    ? { ...room, quiz: message.quiz }
+                    : room
+                )
+              );
+            }
+            break;
+
+          case "player_kicked":
+            // These events will trigger a room update from the server
+            break;
+
+          case "game_started":
+          case "show_question":
+            // Handle game state updates
             break;
         }
       } catch (error) {
@@ -243,7 +263,7 @@ export function WebSocketProvider({
         }));
       }
     },
-    [listRooms, requestParticipantsList, cleanupRoomState]
+    [cleanupRoomState]
   );
 
   // Connection management
@@ -259,11 +279,6 @@ export function WebSocketProvider({
         lastError: null,
       }));
       socketRef.current = ws;
-
-      if (currentRoomRef.current) {
-        listRooms();
-        requestParticipantsList();
-      }
     };
 
     ws.onmessage = handleMessage;
@@ -288,7 +303,7 @@ export function WebSocketProvider({
       }));
       ws.close();
     };
-  }, [endpoint, handleMessage, listRooms, requestParticipantsList]);
+  }, [endpoint, handleMessage]);
 
   // Initialize connection
   useEffect(() => {
@@ -304,14 +319,6 @@ export function WebSocketProvider({
       }
     };
   }, [connect]);
-
-  // Poll for participants list when in a room
-  useEffect(() => {
-    if (connectionState.isConnected && currentRoomRef.current) {
-      const interval = setInterval(requestParticipantsList, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [connectionState.isConnected, requestParticipantsList]);
 
   return (
     <WebSocketContext.Provider

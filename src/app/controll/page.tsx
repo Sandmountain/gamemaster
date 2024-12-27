@@ -84,7 +84,7 @@ export default function ControllPage() {
                       <p>Participants: {room.participantCount}</p>
                       {room.quiz && (
                         <p className="text-green-600 dark:text-green-400">
-                          Quiz Loaded: {room.quiz}
+                          Quiz Loaded: {room.quiz.name}
                         </p>
                       )}
                     </div>

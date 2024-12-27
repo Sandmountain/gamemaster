@@ -4,6 +4,7 @@ export interface QuizQuestion {
   type: "geo" | "multiple";
   time: number;
   alternatives: string[] | null;
+  roundTime: number;
 }
 
 export interface Quiz {
@@ -13,14 +14,14 @@ export interface Quiz {
 
 export interface Participant {
   teamName: string;
-  role: "admin" | "player";
+  role: "admin" | "player" | "viewer" | undefined;
 }
 
 export interface Room {
   id: string;
   name: string;
   participantCount: number;
-  quiz?: string;
+  quiz?: Quiz;
 }
 
 // WebSocket Message Types
@@ -38,10 +39,13 @@ export type WebSocketMessageType =
   | "quiz_loaded"
   | "join_room"
   | "room_joined"
-  | "list_participants"
+  | "leave_room"
   | "participants_list"
   | "kick_player"
-  | "player_kicked";
+  | "player_kicked"
+  | "start_game"
+  | "game_started"
+  | "show_question";
 
 // Base Message Interface
 export interface BaseMessage {
@@ -84,17 +88,18 @@ export interface RoomDeletedMessage extends BaseMessage {
 export interface JoinRoomMessage extends BaseMessage {
   type: "join_room";
   roomId: string;
-  role: "admin" | "player";
+  role: Participant["role"];
 }
 
 export interface RoomJoinedMessage extends BaseMessage {
   type: "room_joined";
   roomId: string;
-  role: "admin" | "player";
+  role: Participant["role"];
+  room: Room;
 }
 
-export interface ListParticipantsMessage extends BaseMessage {
-  type: "list_participants";
+export interface LeaveRoomMessage extends BaseMessage {
+  type: "leave_room";
   roomId: string;
 }
 
@@ -113,7 +118,7 @@ export interface LoadQuizMessage extends BaseMessage {
 export interface QuizLoadedMessage extends BaseMessage {
   type: "quiz_loaded";
   roomId: string;
-  quizName: string;
+  quiz: Quiz;
 }
 
 export interface ListRoomsMessage extends BaseMessage {
@@ -138,6 +143,25 @@ export interface ErrorMessage extends BaseMessage {
   error: string;
 }
 
+// Game state related messages
+export interface StartGameMessage extends BaseMessage {
+  type: "start_game";
+  roomId: string;
+}
+
+export interface GameStartedMessage extends BaseMessage {
+  type: "game_started";
+  roomId: string;
+  startTime: number; // UTC timestamp
+}
+
+export interface ShowQuestionMessage extends BaseMessage {
+  type: "show_question";
+  roomId: string;
+  question: QuizQuestion;
+  questionIndex: number;
+}
+
 // Union type of all possible messages
 export type WebSocketMessage =
   | RegisterMessage
@@ -151,8 +175,11 @@ export type WebSocketMessage =
   | ListRoomsMessage
   | JoinRoomMessage
   | RoomJoinedMessage
-  | ListParticipantsMessage
+  | LeaveRoomMessage
   | ParticipantsListMessage
   | KickPlayerMessage
   | PlayerKickedMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | StartGameMessage
+  | GameStartedMessage
+  | ShowQuestionMessage;
