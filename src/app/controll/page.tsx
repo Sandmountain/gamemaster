@@ -26,17 +26,14 @@ export default function ControllPage() {
   }, [rooms, selectedRoom]);
 
   // Request rooms list when connected
-  useEffect(() => {
-    if (isConnected) {
-      listRooms();
-      const interval = setInterval(listRooms, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [isConnected, listRooms]);
+  // useEffect(() => {
+  //   listRooms();
+  // }, [listRooms]);
 
   const handleJoinRoom = (roomId: string) => {
     setSelectedRoom(roomId);
-    setTeamName(""); // Clear team name when selecting a new room
+    // Clear input when joining a room
+    setTeamName("");
   };
 
   const handleSubmit = (e: React.FormEvent) => {

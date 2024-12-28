@@ -173,14 +173,26 @@ export function WebSocketProvider({
 
           case "room_joined":
             console.log("Room joined:", message);
-            setRoomState((prev) => ({
-              ...prev,
-              error: null,
-              isJoined: true,
-              currentRoom: message.room,
-              participants: [], // Reset participants, will be updated by next participants_list message
-            }));
-            currentRoomRef.current = message.room.id;
+            if (message.room) {
+              setRoomState((prev) => ({
+                ...prev,
+                error: null,
+                isJoined: true,
+                currentRoom: message.room,
+                participants: [], // Reset participants, will be updated by next participants_list message
+              }));
+              currentRoomRef.current = message.room.id;
+            } else {
+              console.error(
+                "Received room_joined message without room data:",
+                message
+              );
+              setRoomState((prev) => ({
+                ...prev,
+                error: "Failed to join room: Invalid response",
+                isJoined: false,
+              }));
+            }
             break;
 
           case "room_created":
@@ -269,7 +281,6 @@ export function WebSocketProvider({
   // Connection management
   const connect = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) return;
-
     const ws = new WebSocket(endpoint);
 
     ws.onopen = () => {

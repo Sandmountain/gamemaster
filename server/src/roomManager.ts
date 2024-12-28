@@ -219,7 +219,7 @@ export class RoomManager {
     };
     this.rooms.set(roomId, room);
 
-    // Send room created message with room data
+    // Send room created message to creator
     creator.send(
       JSON.stringify({
         type: "room_created",
@@ -228,7 +228,7 @@ export class RoomManager {
       })
     );
 
-    // Send room joined message with room data
+    // Send room joined message to creator with room data
     creator.send(
       JSON.stringify({
         type: "room_joined",
@@ -238,15 +238,16 @@ export class RoomManager {
           id: room.id,
           name: room.name,
           participantCount: 1,
-          quiz: room.quiz?.name || "",
+          quiz: room.quiz,
         },
       })
     );
 
-    // Broadcast room list update to all clients
-    this.broadcastToAll({
-      type: "list_rooms",
-      rooms: this.getRooms(),
+    // Send updated participant list
+    this.broadcastToRoom(roomId, {
+      type: "participants_list",
+      roomId,
+      participants: this.getParticipants(roomId),
     });
 
     return room;
@@ -309,7 +310,7 @@ export class RoomManager {
       const teamName = this.clientTeamNames.get(participant) || "Gamemaster 🚀";
       room.participants.set(participant, { role, teamName });
 
-      // Send join confirmation with room data
+      // Send join confirmation with room data for all roles
       participant.send(
         JSON.stringify({
           type: "room_joined",

@@ -66,27 +66,24 @@ wss.on("connection", (ws: WebSocket) => {
     try {
       const message = JSON.parse(data.toString()) as WebSocketMessage;
 
-      if (message.type !== "list_rooms") {
-        console.log("Received:", message);
-      }
+      console.log("Received:", message);
 
       switch (message.type) {
         case "create_room":
-          const room = roomManager.createRoom(message.roomName, ws);
-          ws.send(
-            JSON.stringify({
-              type: "room_created",
-              roomId: room.id,
-              roomName: room.name,
-              participants: roomManager.getParticipants(room.id),
-            })
-          );
-          ws.send(
-            JSON.stringify({
-              type: "list_rooms",
-              rooms: roomManager.getRooms(),
-            })
-          );
+          // Create the room and let RoomManager handle all messaging
+          roomManager.createRoom(message.roomName, ws);
+
+          // Broadcast updated room list to all connected clients
+          wss.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(
+                JSON.stringify({
+                  type: "list_rooms",
+                  rooms: roomManager.getRooms(),
+                })
+              );
+            }
+          });
           break;
 
         case "join_room":
@@ -102,15 +99,6 @@ wss.on("connection", (ws: WebSocket) => {
               clientInfo.roomId = message.roomId;
               clientInfo.role = message.role as Participant["role"];
               clients.set(ws, clientInfo);
-
-              // Send confirmation
-              ws.send(
-                JSON.stringify({
-                  type: "room_joined",
-                  roomId: message.roomId,
-                  role: message.role,
-                })
-              );
 
               // Notify others in the room
               roomManager.broadcastToRoomExcept(
@@ -132,8 +120,11 @@ wss.on("connection", (ws: WebSocket) => {
             } else {
               ws.send(
                 JSON.stringify({
-                  type: message.role === "admin" ? "room_joined" : "error",
-                  error: message.role === "admin" ? "" : "Failed to join room",
+                  type: "error",
+                  error:
+                    message.role === "admin"
+                      ? "Room already has an admin"
+                      : "Failed to join room",
                 })
               );
             }
