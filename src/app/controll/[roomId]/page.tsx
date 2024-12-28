@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { use } from "react";
 import { useWebSocket } from "@/contexts/WebSocketContext";
+import { useGameEvents } from "@/hooks/useGameEvents";
 
 export default function JoinRoomPage({
   params,
@@ -15,8 +16,17 @@ export default function JoinRoomPage({
   const roomId = resolvedParams.roomId;
 
   const [teamName, setTeamName] = useState("");
-  const { isConnected, isJoined, currentRoom, error, sendMessage, joinRoom } =
-    useWebSocket();
+  const {
+    isConnected,
+    isJoined,
+    currentRoom,
+    error,
+    socket,
+    sendMessage,
+    joinRoom,
+  } = useWebSocket();
+
+  const { countdown, nextQuestionIndex } = useGameEvents(socket);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +69,21 @@ export default function JoinRoomPage({
             </p>
           )}
         </div>
+        {countdown !== null && (
+          <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+            <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl text-center">
+              <h2 className="text-2xl font-bold mb-4">
+                Next Question Coming Up!
+              </h2>
+              <p className="text-6xl font-bold text-blue-500">{countdown}</p>
+              {nextQuestionIndex !== null && (
+                <p className="mt-4 text-gray-600 dark:text-gray-300">
+                  Question {nextQuestionIndex + 1}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

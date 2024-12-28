@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Quiz } from "@shared/types/websocket";
 import { RoomViewState } from "@/types/client";
 import { useWebSocket } from "@/contexts/WebSocketContext";
 import ConfirmModal from "@/components/ConfirmModal";
 import sampleQuiz from "@/data/sample-quiz.json";
+import { useGameEvents } from "@/hooks/useGameEvents";
+import { GameController } from "./GameController";
 
 interface RoomViewProps {
   roomId: string;
@@ -25,11 +27,13 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
     isJoined,
     isConnected,
     error,
+    socket,
     joinRoom,
     loadQuiz,
     sendMessage,
   } = useWebSocket();
 
+  const { currentQuestion } = useGameEvents(socket);
   // Join room and request participants list
   useEffect(() => {
     if (isConnected && !isJoined) {
@@ -80,6 +84,14 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
       }));
     }
   };
+
+  const handleStartGame = useCallback(() => {
+    if (!socket) return;
+    sendMessage({
+      type: "start_game",
+      roomId: roomId,
+    });
+  }, [socket, roomId, sendMessage]);
 
   if (!room) {
     return (
@@ -218,14 +230,10 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
                       {room.quiz.questions?.length || 0} questions
                     </p>
                   </div>
-                  {isJoined && (
+
+                  {isJoined && !currentQuestion && (
                     <button
-                      onClick={() => {
-                        sendMessage({
-                          type: "start_game",
-                          roomId: room.id,
-                        });
-                      }}
+                      onClick={handleStartGame}
                       className="w-full bg-blue-500 text-white py-3 px-4 rounded-md hover:bg-blue-600 transition-colors"
                     >
                       Start Game
@@ -309,6 +317,7 @@ export default function RoomView({ roomId, onBack }: RoomViewProps) {
           )}
         </div>
       </div>
+      <GameController room={room} />
     </>
   );
 }

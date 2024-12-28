@@ -284,6 +284,10 @@ wss.on("connection", (ws: WebSocket) => {
           }
           break;
 
+        case "start_game":
+          roomManager.startGame(message.roomId);
+          break;
+
         default:
           ws.send(JSON.stringify({ type: "echo", data: message }));
       }

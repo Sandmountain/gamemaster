@@ -45,6 +45,11 @@ export type WebSocketMessageType =
   | "player_kicked"
   | "start_game"
   | "game_started"
+  | "next_question_start"
+  | "next_question_stop"
+  | "round_start"
+  | "round_end"
+  | "next_round"
   | "show_question";
 
 // Base Message Interface
@@ -152,7 +157,8 @@ export interface StartGameMessage extends BaseMessage {
 export interface GameStartedMessage extends BaseMessage {
   type: "game_started";
   roomId: string;
-  startTime: number; // UTC timestamp
+  startTime: string; // ISO string
+  gameState: GameState;
 }
 
 export interface ShowQuestionMessage extends BaseMessage {
@@ -160,6 +166,54 @@ export interface ShowQuestionMessage extends BaseMessage {
   roomId: string;
   question: QuizQuestion;
   questionIndex: number;
+  gameState: GameState;
+}
+
+// Game state types
+export interface GameState {
+  currentRoom: Room;
+  isGameStarted: boolean;
+  currentQuestion: number;
+  teamPoints: {
+    [teamName: string]: number;
+  };
+  startTime: string; // ISO string for date serialization
+}
+
+// Add new message interfaces
+export interface NextQuestionStartMessage extends BaseMessage {
+  type: "next_question_start";
+  roomId: string;
+  remainingTime: number; // Time in milliseconds
+  nextQuestionIndex: number;
+  gameState: GameState;
+}
+
+export interface NextQuestionStopMessage extends BaseMessage {
+  type: "next_question_stop";
+  roomId: string;
+  nextQuestionIndex: number;
+  gameState: GameState;
+}
+
+export interface RoundStartMessage extends BaseMessage {
+  type: "round_start";
+  roomId: string;
+  roundTime: number; // Time in seconds
+  questionIndex: number;
+  gameState: GameState;
+}
+
+export interface RoundEndMessage extends BaseMessage {
+  type: "round_end";
+  roomId: string;
+  questionIndex: number;
+  gameState: GameState;
+}
+
+export interface NextRoundMessage extends BaseMessage {
+  type: "next_round";
+  roomId: string;
 }
 
 // Union type of all possible messages
@@ -182,4 +236,9 @@ export type WebSocketMessage =
   | ErrorMessage
   | StartGameMessage
   | GameStartedMessage
+  | NextQuestionStartMessage
+  | NextQuestionStopMessage
+  | RoundStartMessage
+  | RoundEndMessage
+  | NextRoundMessage
   | ShowQuestionMessage;

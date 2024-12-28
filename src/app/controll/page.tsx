@@ -6,16 +6,8 @@ import { useWebSocket } from "@/contexts/WebSocketContext";
 export default function ControllPage() {
   const [teamName, setTeamName] = useState<string>("");
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
-  const {
-    rooms,
-    currentRoom,
-    isConnected,
-    isJoined,
-    error,
-    joinRoom,
-    listRooms,
-    sendMessage,
-  } = useWebSocket();
+  const { rooms, currentRoom, isJoined, error, joinRoom, sendMessage } =
+    useWebSocket();
 
   // Clear selected room if it no longer exists
   useEffect(() => {

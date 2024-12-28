@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWebSocket } from "@/contexts/WebSocketContext";
 
@@ -8,6 +8,46 @@ export default function ViewPage() {
   const router = useRouter();
   const { rooms, isConnected, listRooms, sendMessage, joinRoom } =
     useWebSocket();
+
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [nextQuestionIndex, setNextQuestionIndex] = useState<number | null>(
+    null
+  );
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const message = JSON.parse(event.data);
+      switch (message.type) {
+        case "next_question_start":
+          setCountdown(Math.ceil(message.remainingTime / 1000));
+          setNextQuestionIndex(message.nextQuestionIndex);
+          break;
+        case "next_question_stop":
+          setCountdown(null);
+          break;
+        case "show_question":
+          setNextQuestionIndex(null);
+          break;
+      }
+    };
+
+    if (isConnected) {
+      const ws = new WebSocket(process.env.NEXT_PUBLIC_WS_URL!);
+      ws.addEventListener("message", handleMessage);
+      return () => ws.removeEventListener("message", handleMessage);
+    }
+  }, [isConnected]);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (countdown === null) return;
+
+    const timer = setInterval(() => {
+      setCountdown((prev) => (prev !== null && prev > 0 ? prev - 1 : null));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [countdown]);
 
   // Request rooms list when connected
   useEffect(() => {
@@ -87,6 +127,20 @@ export default function ViewPage() {
           </div>
         )}
       </div>
+
+      {countdown !== null && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl text-center">
+            <h2 className="text-2xl font-bold mb-4">Get Ready!</h2>
+            <p className="text-6xl font-bold text-blue-500">{countdown}</p>
+            {nextQuestionIndex !== null && (
+              <p className="mt-4 text-gray-600 dark:text-gray-300">
+                Question {nextQuestionIndex + 1} Coming Up
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

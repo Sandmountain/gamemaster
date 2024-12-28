@@ -18,6 +18,7 @@ import { ClientRoomState, ConnectionState } from "@/types/client";
 
 interface WebSocketContextType extends ClientRoomState, ConnectionState {
   rooms: Room[];
+  socket: WebSocket | null;
   // Actions
   joinRoom: (roomId: string, role: Participant["role"]) => void;
   leaveRoom: () => void;
@@ -37,6 +38,7 @@ const WebSocketContext = createContext<WebSocketContextType>({
   isConnected: false,
   lastError: null,
   reconnectAttempts: 0,
+  socket: null,
   // Actions
   joinRoom: () => {},
   leaveRoom: () => {},
@@ -337,6 +339,7 @@ export function WebSocketProvider({
         ...roomState,
         ...connectionState,
         rooms,
+        socket: socketRef.current,
         sendMessage,
         joinRoom,
         leaveRoom,
