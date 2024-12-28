@@ -1,7 +1,7 @@
 // Common types used by both frontend and backend
 export interface QuizQuestion {
   question: string;
-  type: "geo" | "multiple";
+  type: "geo" | "multiple" | "first_to_press";
   time: number;
   alternatives: string[] | null;
   roundTime: number;
@@ -50,7 +50,8 @@ export type WebSocketMessageType =
   | "round_start"
   | "round_end"
   | "next_round"
-  | "show_question";
+  | "show_question"
+  | "submit_answer";
 
 // Base Message Interface
 export interface BaseMessage {
@@ -216,6 +217,12 @@ export interface NextRoundMessage extends BaseMessage {
   roomId: string;
 }
 
+export interface SubmitAnswerMessage extends BaseMessage {
+  type: "submit_answer";
+  roomId: string;
+  answer: number;
+}
+
 // Union type of all possible messages
 export type WebSocketMessage =
   | RegisterMessage
@@ -241,4 +248,5 @@ export type WebSocketMessage =
   | RoundStartMessage
   | RoundEndMessage
   | NextRoundMessage
-  | ShowQuestionMessage;
+  | ShowQuestionMessage
+  | SubmitAnswerMessage;

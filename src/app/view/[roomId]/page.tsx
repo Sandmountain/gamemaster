@@ -1,10 +1,11 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { use } from "react";
 import { useWebSocket } from "@/contexts/WebSocketContext";
+import { useGameEvents } from "@/hooks/useGameEvents";
 
 export default function ViewRoomPage({
   params,
@@ -29,12 +30,10 @@ export default function ViewRoomPage({
     sendMessage,
     joinRoom,
     listRooms,
+    socket,
   } = useWebSocket();
-  const [countdown, setCountdown] = useState<number | null>(null);
-  // const [currentQuestion, setCurrentQuestion] = useState<QuizQuestion | null>(
-  //   null
-  // );
-  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+
+  const { countdown, currentQuestion, roundTime } = useGameEvents(socket);
 
   // Request room list and join as viewer when connected
   useEffect(() => {
@@ -52,7 +51,7 @@ export default function ViewRoomPage({
       // Join as viewer
       joinRoom(roomId, "viewer");
     }
-  }, [isConnected, isJoined, roomId, sendMessage, listRooms]);
+  }, [isConnected, isJoined, roomId, sendMessage, listRooms, joinRoom]);
 
   // If there's an error, redirect back to view page
   useEffect(() => {
@@ -60,40 +59,6 @@ export default function ViewRoomPage({
       router.push("/view");
     }
   }, [error, router]);
-
-  // Countdown timer
-  useEffect(() => {
-    if (countdown === null) return;
-
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev === null || prev <= 0) {
-          clearInterval(timer);
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [countdown]);
-
-  // Question timer
-  useEffect(() => {
-    if (timeLeft === null) return;
-
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev === null || prev <= 0) {
-          clearInterval(timer);
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [timeLeft]);
 
   if (!isConnected) {
     return (
@@ -117,14 +82,8 @@ export default function ViewRoomPage({
 
   return (
     <div className="container mx-auto p-4 flex flex-col items-center justify-center min-h-screen">
-      {!currentRoom || !isJoined ? (
-        <div className="container mx-auto p-4 flex items-center justify-center min-h-screen">
-          <div className="text-2xl text-gray-500 dark:text-gray-400">
-            Joining room...
-          </div>
-        </div>
-      ) : (
-        <div className="w-full max-w-4xl">
+      <div className="w-full max-w-4xl">
+        {!currentQuestion && (
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg mb-8">
             <h1 className="text-3xl font-bold mb-4">{currentRoom.name}</h1>
 
@@ -163,39 +122,49 @@ export default function ViewRoomPage({
               </div>
             )}
           </div>
+        )}
 
-          {countdown !== null && (
-            <div className="text-6xl font-bold animate-pulse text-center my-12">
-              Game starting in {countdown}
-            </div>
-          )}
-          {/* 
-      {currentQuestion && (
-        <div className="w-full">
-          <div className="mb-4 text-2xl font-bold text-center">
-            Time left: {timeLeft}s
+        {countdown !== null && (
+          <div className="text-6xl font-bold animate-pulse text-center my-12">
+            Game starting in {countdown}
           </div>
+        )}
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg">
-            <h2 className="text-2xl font-bold mb-6">
-              {currentQuestion.question}
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {currentQuestion.alternatives?.map((alternative, index) => (
+        {currentQuestion && (
+          <div className="w-full space-y-8">
+            {/* Time remaining bar */}
+            {roundTime !== null && (
+              <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden">
                 <div
-                  key={index}
-                  className="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg text-center"
-                >
-                  {alternative}
-                </div>
-              ))}
+                  className="h-full bg-blue-500 transition-all duration-1000"
+                  style={{
+                    width: `${(roundTime / currentQuestion.roundTime) * 100}%`,
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Question */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-8 shadow-lg text-center">
+              <h2 className="text-4xl md:text-6xl font-bold mb-8">
+                {currentQuestion.question}
+              </h2>
+
+              {/* Alternatives */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {currentQuestion.alternatives?.map((alternative, index) => (
+                  <div
+                    key={index}
+                    className="p-6 bg-gray-100 dark:bg-gray-700 rounded-lg text-2xl text-center"
+                  >
+                    {alternative}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      )} */}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
