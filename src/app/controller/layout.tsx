@@ -2,7 +2,7 @@
 
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 
-export default function ControllLayout({
+export default function ControllerLayout({
   children,
 }: {
   children: React.ReactNode;

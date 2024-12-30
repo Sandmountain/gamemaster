@@ -1,115 +1,229 @@
+"use client";
+
+import { Box, Button, Typography, Paper, IconButton } from "@mui/material";
 import { useWebSocket } from "@/contexts/WebSocketContext";
 import { useGameEvents } from "@/hooks/useGameEvents";
-import { Room } from "@shared/types/websocket";
+import { useState } from "react";
+import AddIcon from "@mui/icons-material/Add";
+import RemoveIcon from "@mui/icons-material/Remove";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
 
-import { useCallback } from "react";
+export default function GameController() {
+  const [localIndex, setLocalIndex] = useState(0);
+  const [pressedTeam, setPressedTeam] = useState<string | null>(null);
+  const [disqualifiedTeams, setDisqualifiedTeams] = useState<Set<string>>(
+    new Set()
+  );
+  const { socket, currentRoom, gameState } = useWebSocket();
+  const { currentQuestion, isRoundEnded, roundTime } = useGameEvents(socket);
 
-interface GameControllerProps {
-  room: Room;
-}
+  const handleNextRound = () => {
+    if (!socket || !currentRoom) return;
+    setLocalIndex(localIndex + 1);
+    setPressedTeam(null);
+    setDisqualifiedTeams(new Set());
+    socket.send(
+      JSON.stringify({
+        type: "next_round",
+        roomId: currentRoom.id,
+      })
+    );
+  };
 
-export function GameController({ room }: GameControllerProps) {
-  const { socket, sendMessage } = useWebSocket();
-  const {
-    countdown,
-    nextQuestionIndex,
-    currentQuestion,
-    roundTime,
-    isRoundEnded,
-  } = useGameEvents(socket);
+  const handlePointsChange = (teamName: string, amount: number) => {
+    if (!socket || !currentRoom) return;
 
-  const handleNextRound = useCallback(() => {
-    if (!socket) return;
-    sendMessage({
-      type: "next_round",
-      roomId: room.id,
-    });
-  }, [socket, room.id, sendMessage]);
+    socket.send(
+      JSON.stringify({
+        type: "adjust_points",
+        roomId: currentRoom.id,
+        teamName,
+        pointAdjustment: amount,
+      })
+    );
+  };
 
-  if (!room.quiz) return <h2>No quiz loaded</h2>;
+  const handleJudgement = (correct: boolean) => {
+    if (!socket || !currentRoom || !pressedTeam) return;
+
+    socket.send(
+      JSON.stringify({
+        type: "admin_judgement",
+        roomId: currentRoom.id,
+        teamName: pressedTeam,
+        correct,
+      })
+    );
+
+    if (!correct) {
+      // Add team to disqualified list and clear pressed team
+      setDisqualifiedTeams((prev) => new Set([...prev, pressedTeam]));
+      setPressedTeam(null);
+    }
+  };
+
+  const localQuestion = currentRoom?.quiz?.questions[localIndex];
+  const isFirstToPress = localQuestion?.type === "first_to_press";
 
   return (
-    <div className="space-y-4">
-      {/* Game Status */}
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Game in Progress</h2>
-        <div className="text-lg">
-          Question{" "}
-          {nextQuestionIndex !== null
-            ? nextQuestionIndex + 1
-            : currentQuestion
-            ? room.quiz?.questions.indexOf(currentQuestion) + 1
-            : 0}
-          /{room.quiz?.questions.length}
-        </div>
-      </div>
-
-      {/* Countdown Display */}
-      {countdown !== null && (
-        <div className="p-4 bg-yellow-100">
-          <div className="text-center">
-            <h3 className="text-2xl font-bold">Next Question In</h3>
-            <div className="text-4xl font-bold mt-2">{countdown}</div>
-          </div>
-        </div>
-      )}
-
+    <Box sx={{ p: 3 }}>
       {/* Current Question Display */}
-      {currentQuestion && (
-        <div className="p-4">
-          <div className="space-y-4">
-            <h3 className="text-xl font-bold">Current Question</h3>
-            <p className="text-lg">{currentQuestion.question}</p>
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h5" gutterBottom>
+          Current Question
+        </Typography>
+        <Typography variant="body1">{localQuestion?.question}</Typography>
+        {localQuestion?.type === "multiple" && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              Alternatives:
+            </Typography>
+            {localQuestion?.alternatives?.map((alt, index) => (
+              <Typography key={index} variant="body2">
+                {index + 1}. {localQuestion.correctAnswer === index ? "✅" : ""}{" "}
+                {alt}
+              </Typography>
+            ))}
+          </Box>
+        )}
+      </Paper>
 
-            {currentQuestion.alternatives && (
-              <div className="space-y-2">
-                <h4 className="font-semibold">Alternatives:</h4>
-                <ul className="list-disc pl-6">
-                  {currentQuestion.alternatives.map((alt, index) => (
-                    <li key={index} className="text-lg">
-                      {alt}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+      {/* First to Press Status */}
+      {isFirstToPress && (
+        <Paper
+          sx={{
+            p: 3,
+            mb: 3,
+            bgcolor: pressedTeam ? "action.selected" : undefined,
+          }}
+        >
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <Typography variant="h6">
+              {pressedTeam
+                ? `${pressedTeam} pressed first!`
+                : "Waiting for teams to press..."}
+            </Typography>
+            {pressedTeam && (
+              <Box sx={{ display: "flex", gap: 2 }}>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={() => handleJudgement(true)}
+                  startIcon={<CheckCircleIcon />}
+                >
+                  Correct
+                </Button>
+                <Button
+                  variant="contained"
+                  color="error"
+                  onClick={() => handleJudgement(false)}
+                  startIcon={<CancelIcon />}
+                >
+                  Wrong
+                </Button>
+              </Box>
             )}
-
-            {roundTime !== null && (
-              <div className="mt-4 text-center">
-                <div className="text-sm uppercase text-gray-600">
-                  Time Remaining
-                </div>
-                <div className="text-3xl font-bold">{roundTime}s</div>
-              </div>
-            )}
-          </div>
-        </div>
+          </Box>
+          {disqualifiedTeams.size > 0 && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" color="error">
+                Disqualified teams: {Array.from(disqualifiedTeams).join(", ")}
+              </Typography>
+            </Box>
+          )}
+        </Paper>
       )}
 
-      {/* Next Round Button */}
-      {isRoundEnded && (
-        <div className="flex justify-center">
-          <button onClick={handleNextRound} className="px-8 py-6 text-lg">
-            Start Next Round
-          </button>
-        </div>
-      )}
+      {/* Round Control */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <Typography variant="h6">
+            {isRoundEnded
+              ? "Round Ended"
+              : roundTime
+              ? `Time left: ${roundTime}s`
+              : "Waiting..."}
+          </Typography>
+          {isRoundEnded && (
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              onClick={handleNextRound}
+              sx={{
+                minWidth: 200,
+                animation: "pulse 1.5s infinite",
+                "@keyframes pulse": {
+                  "0%": { transform: "scale(1)" },
+                  "50%": { transform: "scale(1.05)" },
+                  "100%": { transform: "scale(1)" },
+                },
+              }}
+            >
+              Next Round
+            </Button>
+          )}
+        </Box>
+      </Paper>
 
       {/* Team Points */}
-      {/* <div className="p-4">
-        <h3 className="text-xl font-bold mb-4">Team Standings</h3>
-        <div className="space-y-3">
-          {Object.entries(room.quiz?.teamPoints || {}).map(([team, points]) => (
-            <div
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h5" gutterBottom>
+          Team Points
+        </Typography>
+        {gameState?.teamPoints &&
+          Object.entries(gameState.teamPoints).map(([team, points]) => (
+            <Box
               key={team}
-              className="flex justify-between items-center border-b pb-2"
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                p: 2,
+                mb: 1,
+                borderRadius: 1,
+                bgcolor: "background.paper",
+                "&:hover": {
+                  bgcolor: "action.hover",
+                },
+              }}
             >
-              <span className="text-lg">{team}</span>
-              <span className="text-lg font-bold">{points} points</span>
-            </div>
+              <Typography variant="subtitle1">{team}</Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <IconButton
+                  size="small"
+                  onClick={() => handlePointsChange(team, -100)}
+                  sx={{ color: "error.main" }}
+                >
+                  <RemoveIcon />
+                </IconButton>
+                <Typography variant="h6" color="primary.main" fontWeight="bold">
+                  {points}
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={() => handlePointsChange(team, 100)}
+                  sx={{ color: "success.main" }}
+                >
+                  <AddIcon />
+                </IconButton>
+              </Box>
+            </Box>
           ))}
-        </div>
-      </div> */}
-    </div>
+      </Paper>
+    </Box>
   );
 }

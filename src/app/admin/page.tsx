@@ -16,7 +16,7 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="min-h-screen p-8">
+    <div className="min-h-screen p-8 pt-16">
       {selectedRoomId ? (
         <RoomView roomId={selectedRoomId} onBack={handleBackToRooms} />
       ) : (

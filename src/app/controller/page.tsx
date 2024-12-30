@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useWebSocket } from "@/contexts/WebSocketContext";
+import { Button } from "@mui/material";
+import { TextField } from "@mui/material";
 
-export default function ControllPage() {
+export default function ControllerPage() {
   const [teamName, setTeamName] = useState<string>("");
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const { rooms, currentRoom, isJoined, error, joinRoom, sendMessage } =
@@ -43,9 +45,7 @@ export default function ControllPage() {
   };
 
   return (
-    <div className="min-h-screen p-8">
-      <h1 className="text-2xl font-bold mb-4">Control Panel</h1>
-
+    <div className="min-h-screen p-8 pt-16">
       {error && (
         <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
           <p className="text-yellow-700 dark:text-yellow-300">{error}</p>
@@ -90,30 +90,23 @@ export default function ControllPage() {
           {selectedRoom && rooms.some((room) => room.id === selectedRoom) && (
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg max-w-md mx-auto">
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label
-                    htmlFor="teamName"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2"
-                  >
-                    Enter Team Name for{" "}
-                    {rooms.find((r) => r.id === selectedRoom)?.name}
-                  </label>
-                  <input
-                    type="text"
-                    id="teamName"
-                    value={teamName}
-                    onChange={(e) => setTeamName(e.target.value)}
-                    className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                    placeholder="Your team name"
-                    required
-                  />
-                </div>
-                <button
+                <TextField
+                  label="Team Name"
+                  variant="outlined"
+                  fullWidth
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  required
+                  autoFocus
+                />
+                <Button
                   type="submit"
-                  className="w-full bg-blue-500 text-white py-3 px-4 rounded-md hover:bg-blue-600 transition-colors"
+                  variant="contained"
+                  size="large"
+                  fullWidth
                 >
-                  Join Room
-                </button>
+                  Join Game
+                </Button>
               </form>
             </div>
           )}

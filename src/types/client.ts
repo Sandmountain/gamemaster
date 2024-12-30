@@ -5,6 +5,7 @@ export interface ClientRoomState {
   currentRoom: Room | null;
   participants: Participant[];
   isJoined: boolean;
+  teamName: string | undefined;
   error: string | null;
 }
 

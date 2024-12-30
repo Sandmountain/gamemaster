@@ -12,6 +12,8 @@ export class RoomManager {
   private clientTeamNames: Map<WebSocket, string>;
   private gameTimers: Map<string, NodeJS.Timeout>;
   private gameStates: Map<string, GameState>;
+  private answers: Map<string, Set<string>> = new Map(); // roomId -> Set of teamNames that answered
+  private roundTimeRemaining: Map<string, number> = new Map();
 
   constructor() {
     this.rooms = new Map();
@@ -260,6 +262,10 @@ export class RoomManager {
     return room;
   }
 
+  leaveRoom(roomId: string, ws: WebSocket) {
+    this.removeParticipant(ws);
+  }
+
   removeParticipant(ws: WebSocket) {
     this.clientTeamNames.delete(ws);
     this.rooms.forEach((room, roomId) => {
@@ -323,6 +329,7 @@ export class RoomManager {
           type: "room_joined",
           roomId,
           role,
+          teamName: this.getClientTeamName(participant),
           room: {
             id: room.id,
             name: room.name,
@@ -465,6 +472,10 @@ export class RoomManager {
     this.clientTeamNames.set(ws, teamName);
   }
 
+  getClientTeamName(ws: WebSocket): string | undefined {
+    return this.clientTeamNames.get(ws);
+  }
+
   getParticipants(
     roomId: string
   ): Array<{ teamName: string; role: Participant["role"] }> {
@@ -502,7 +513,7 @@ export class RoomManager {
       clearTimeout(this.gameTimers.get(roomId));
     }
 
-    // Initialize game state
+    // Initialize game state with empty team points
     const gameState: GameState = {
       currentRoom: {
         id: room.id,
@@ -511,15 +522,15 @@ export class RoomManager {
         quiz: room.quiz,
       },
       isGameStarted: true,
-      currentQuestion: -1, // Will be set to 0 when first question shows
+      currentQuestion: 0,
       teamPoints: {},
       startTime: new Date().toISOString(),
     };
 
-    // Initialize points for all teams
+    // Initialize points for all players (not admin or viewers)
     room.participants.forEach((participant, ws) => {
-      const teamName = this.clientTeamNames.get(ws) || "Unknown";
-      if (participant.role === "player") {
+      const teamName = this.clientTeamNames.get(ws);
+      if (participant.role === "player" && teamName) {
         gameState.teamPoints[teamName] = 0;
       }
     });
@@ -542,6 +553,9 @@ export class RoomManager {
   }
 
   showNextQuestion(roomId: string, questionIndex: number) {
+    // Clear answers from previous round
+    this.answers.delete(roomId);
+
     const room = this.rooms.get(roomId);
     const gameState = this.gameStates.get(roomId);
     if (!room || !room.quiz || !gameState) return;
@@ -591,16 +605,32 @@ export class RoomManager {
         gameState,
       });
 
+      // Initialize round time tracking
+      this.roundTimeRemaining.set(roomId, question.roundTime);
+
+      // Set up timer to update remaining time
+      const timeUpdateInterval = setInterval(() => {
+        const currentTime = this.roundTimeRemaining.get(roomId);
+        if (currentTime && currentTime > 0) {
+          this.roundTimeRemaining.set(roomId, currentTime - 1);
+        } else {
+          clearInterval(timeUpdateInterval);
+        }
+      }, 1000);
+
       // Set timer for round end
       this.gameTimers.set(
         roomId,
         setTimeout(() => {
+          clearInterval(timeUpdateInterval);
+          this.roundTimeRemaining.delete(roomId);
+
           // Send round end event
           this.broadcastToRoom(roomId, {
             type: "round_end",
             roomId,
             questionIndex,
-            gameState,
+            gameState: this.gameStates.get(roomId) as GameState,
           });
         }, question.roundTime * 1000)
       );
@@ -616,6 +646,7 @@ export class RoomManager {
     if (nextQuestionIndex < room.quiz.questions.length) {
       this.showNextQuestion(roomId, nextQuestionIndex);
     } else {
+      console.error("No more questions in the quiz");
       // Game is over
       // this.broadcastToRoom(roomId, {
       //   type: "game_ended",
@@ -634,5 +665,149 @@ export class RoomManager {
         }
       });
     });
+  }
+
+  handleAnswer(roomId: string, teamName: string, answer: number) {
+    const room = this.rooms.get(roomId);
+    const gameState = this.gameStates.get(roomId);
+
+    if (!room || !gameState || !room.quiz) return;
+
+    const currentQuestion = room.quiz.questions[gameState.currentQuestion];
+    if (!currentQuestion) return;
+
+    // Record the answer
+    if (!this.answers.has(roomId)) {
+      this.answers.set(roomId, new Set());
+    }
+    this.answers.get(roomId)?.add(teamName);
+
+    // Calculate points based on time remaining
+    const totalTime = currentQuestion.roundTime;
+    const timeElapsed = totalTime - (this.roundTimeRemaining?.get(roomId) || 0);
+    const timePercentage = timeElapsed / totalTime;
+
+    // Calculate points: 1000 - (percentage of time used * 500)
+    // This gives 1000 points for immediate answers, scaling down to 500 points for last-second answers
+    let points = 0;
+    if (answer === currentQuestion.correctAnswer) {
+      points = Math.round(1000 - timePercentage * 500);
+
+      // Update team points
+      gameState.teamPoints[teamName] =
+        (gameState.teamPoints[teamName] || 0) + points;
+
+      console.log(
+        `Team ${teamName} scored ${points} points (answered in ${timeElapsed}s)`
+      );
+    }
+
+    // Check if all players have answered
+    const playerCount = Array.from(room.participants.values()).filter(
+      (p) => p.role === "player"
+    ).length;
+
+    const answeredCount = this.answers.get(roomId)?.size || 0;
+
+    console.log(`Answers received: ${answeredCount}/${playerCount}`);
+
+    if (answeredCount >= playerCount) {
+      console.log("All players have answered, ending round");
+      // Clear the round timer
+      if (this.gameTimers.has(roomId)) {
+        clearTimeout(this.gameTimers.get(roomId));
+        this.gameTimers.delete(roomId);
+      }
+
+      // Clear answers for next round
+      this.answers.delete(roomId);
+
+      // Send round end event with updated game state and round scores
+      this.broadcastToRoom(roomId, {
+        type: "round_end",
+        roomId,
+        questionIndex: gameState.currentQuestion,
+        gameState,
+        roundScores: {
+          [teamName]: points, // Include the points scored in this round
+        },
+      });
+    }
+  }
+
+  handlePointAdjustment(
+    roomId: string,
+    teamName: string,
+    pointAdjustment: number
+  ) {
+    const gameState = this.gameStates.get(roomId);
+    if (!gameState) return;
+
+    // Update team points
+    if (gameState.teamPoints[teamName] !== undefined) {
+      gameState.teamPoints[teamName] += pointAdjustment;
+
+      // Broadcast updated game state
+      this.broadcastToRoom(roomId, {
+        type: "game_state_update",
+        roomId,
+        gameState,
+      });
+    }
+  }
+
+  handleButtonPress(roomId: string, teamName: string) {
+    const room = this.rooms.get(roomId);
+    const gameState = this.gameStates.get(roomId);
+    if (!room || !gameState || !room.quiz) return;
+
+    const currentQuestion = room.quiz.questions[gameState.currentQuestion];
+    if (!currentQuestion || currentQuestion.type !== "first_to_press") return;
+
+    // Broadcast who pressed first
+    this.broadcastToRoom(roomId, {
+      type: "button_pressed",
+      roomId,
+      teamName,
+    });
+  }
+
+  handleAdminJudgement(roomId: string, teamName: string, correct: boolean) {
+    const room = this.rooms.get(roomId);
+    const gameState = this.gameStates.get(roomId);
+    if (!room || !gameState || !room.quiz) return;
+
+    const currentQuestion = room.quiz.questions[gameState.currentQuestion];
+    if (!currentQuestion || currentQuestion.type !== "first_to_press") return;
+
+    if (correct) {
+      // Award points (1000 points for correct first_to_press answer)
+      gameState.teamPoints[teamName] =
+        (gameState.teamPoints[teamName] || 0) + 1000;
+
+      // End the round
+      this.broadcastToRoom(roomId, {
+        type: "round_end",
+        roomId,
+        questionIndex: gameState.currentQuestion,
+        gameState,
+        roundScores: {
+          [teamName]: 1000,
+        },
+      });
+
+      // Clear any existing game timer
+      if (this.gameTimers.has(roomId)) {
+        clearTimeout(this.gameTimers.get(roomId));
+        this.gameTimers.delete(roomId);
+      }
+    } else {
+      // Just broadcast the updated game state to show the team was wrong
+      this.broadcastToRoom(roomId, {
+        type: "game_state_update",
+        roomId,
+        gameState,
+      });
+    }
   }
 }

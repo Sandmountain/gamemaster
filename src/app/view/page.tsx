@@ -64,6 +64,7 @@ export default function ViewPage() {
       type: "register",
       teamName: `Viewer-${Math.random().toString(36).substring(7)}`,
       roomId,
+      role: "viewer",
     });
     // Join as viewer
     joinRoom(roomId, "viewer");

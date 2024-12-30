@@ -19,7 +19,11 @@ export interface Room {
 export const isRegisterMessage = (
   message: WebSocketMessage
 ): message is RegisterMessage => {
-  return message.type === "register" && typeof message.teamName === "string";
+  return (
+    message.type === "register" &&
+    typeof message.teamName === "string" &&
+    typeof message.role === "string"
+  );
 };
 
 export const isJoinRoomMessage = (

@@ -2,9 +2,9 @@
 export interface QuizQuestion {
   question: string;
   type: "geo" | "multiple" | "first_to_press";
-  time: number;
   alternatives: string[] | null;
   roundTime: number;
+  correctAnswer: number;
 }
 
 export interface Quiz {
@@ -51,7 +51,11 @@ export type WebSocketMessageType =
   | "round_end"
   | "next_round"
   | "show_question"
-  | "submit_answer";
+  | "submit_answer"
+  | "adjust_points"
+  | "game_state_update"
+  | "button_pressed"
+  | "admin_judgement";
 
 // Base Message Interface
 export interface BaseMessage {
@@ -63,6 +67,7 @@ export interface RegisterMessage extends BaseMessage {
   type: "register";
   teamName: string;
   roomId?: string;
+  role: Participant["role"];
 }
 
 export interface ConnectionMessage extends BaseMessage {
@@ -101,6 +106,7 @@ export interface RoomJoinedMessage extends BaseMessage {
   type: "room_joined";
   roomId: string;
   role: Participant["role"];
+  teamName: string;
   room: Room;
 }
 
@@ -158,7 +164,7 @@ export interface StartGameMessage extends BaseMessage {
 export interface GameStartedMessage extends BaseMessage {
   type: "game_started";
   roomId: string;
-  startTime: string; // ISO string
+  startTime: string;
   gameState: GameState;
 }
 
@@ -178,14 +184,14 @@ export interface GameState {
   teamPoints: {
     [teamName: string]: number;
   };
-  startTime: string; // ISO string for date serialization
+  startTime: string;
 }
 
 // Add new message interfaces
 export interface NextQuestionStartMessage extends BaseMessage {
   type: "next_question_start";
   roomId: string;
-  remainingTime: number; // Time in milliseconds
+  remainingTime: number;
   nextQuestionIndex: number;
   gameState: GameState;
 }
@@ -200,7 +206,7 @@ export interface NextQuestionStopMessage extends BaseMessage {
 export interface RoundStartMessage extends BaseMessage {
   type: "round_start";
   roomId: string;
-  roundTime: number; // Time in seconds
+  roundTime: number;
   questionIndex: number;
   gameState: GameState;
 }
@@ -210,6 +216,9 @@ export interface RoundEndMessage extends BaseMessage {
   roomId: string;
   questionIndex: number;
   gameState: GameState;
+  roundScores?: {
+    [teamName: string]: number;
+  };
 }
 
 export interface NextRoundMessage extends BaseMessage {
@@ -221,6 +230,33 @@ export interface SubmitAnswerMessage extends BaseMessage {
   type: "submit_answer";
   roomId: string;
   answer: number;
+  teamName: string;
+}
+
+export interface AdjustPointsMessage extends BaseMessage {
+  type: "adjust_points";
+  roomId: string;
+  teamName: string;
+  pointAdjustment: number;
+}
+
+export interface GameStateUpdateMessage extends BaseMessage {
+  type: "game_state_update";
+  roomId: string;
+  gameState: GameState;
+}
+
+export interface ButtonPressedMessage extends BaseMessage {
+  type: "button_pressed";
+  roomId: string;
+  teamName: string;
+}
+
+export interface AdminJudgementMessage extends BaseMessage {
+  type: "admin_judgement";
+  roomId: string;
+  teamName: string;
+  correct: boolean;
 }
 
 // Union type of all possible messages
@@ -238,15 +274,19 @@ export type WebSocketMessage =
   | RoomJoinedMessage
   | LeaveRoomMessage
   | ParticipantsListMessage
+  | ErrorMessage
   | KickPlayerMessage
   | PlayerKickedMessage
-  | ErrorMessage
   | StartGameMessage
   | GameStartedMessage
   | NextQuestionStartMessage
   | NextQuestionStopMessage
+  | ShowQuestionMessage
   | RoundStartMessage
   | RoundEndMessage
   | NextRoundMessage
-  | ShowQuestionMessage
-  | SubmitAnswerMessage;
+  | SubmitAnswerMessage
+  | AdjustPointsMessage
+  | GameStateUpdateMessage
+  | ButtonPressedMessage
+  | AdminJudgementMessage;

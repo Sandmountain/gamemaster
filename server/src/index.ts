@@ -117,6 +117,8 @@ wss.on("connection", (ws: WebSocket) => {
                 roomId: message.roomId,
                 participants,
               });
+
+              ws;
             } else {
               ws.send(
                 JSON.stringify({
@@ -204,6 +206,10 @@ wss.on("connection", (ws: WebSocket) => {
           );
           break;
 
+        case "leave_room":
+          roomManager.leaveRoom(message.roomId, ws);
+          break;
+
         case "register":
           if (isRegisterMessage(message)) {
             const clientInfo = {
@@ -286,6 +292,29 @@ wss.on("connection", (ws: WebSocket) => {
 
         case "start_game":
           roomManager.startGame(message.roomId);
+          break;
+        case "next_round":
+          roomManager.handleNextRound(message.roomId);
+          break;
+
+        case "submit_answer":
+          roomManager.handleAnswer(
+            message.roomId,
+            message.teamName,
+            message.answer
+          );
+          break;
+
+        case "adjust_points":
+          roomManager.handlePointAdjustment(
+            message.roomId,
+            message.teamName,
+            message.pointAdjustment
+          );
+          break;
+
+        case "button_pressed":
+          roomManager.handleButtonPress(message.roomId, message.teamName);
           break;
 
         default:

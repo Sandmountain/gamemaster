@@ -7,18 +7,25 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
 } from "react";
 import {
   WebSocketMessage,
   Room,
   Quiz,
   Participant,
+  GameState,
 } from "@shared/types/websocket";
 import { ClientRoomState, ConnectionState } from "@/types/client";
 
 interface WebSocketContextType extends ClientRoomState, ConnectionState {
   rooms: Room[];
   socket: WebSocket | null;
+  currentRoom: Room | null;
+  teamName: string | undefined;
+  gameState: GameState | null;
+  pressedTeam: string | null;
+  isDisqualified: boolean;
   // Actions
   joinRoom: (roomId: string, role: Participant["role"]) => void;
   leaveRoom: () => void;
@@ -34,6 +41,10 @@ const WebSocketContext = createContext<WebSocketContextType>({
   participants: [],
   isJoined: false,
   error: null,
+  teamName: "",
+  gameState: null,
+  pressedTeam: null,
+  isDisqualified: false,
   // Connection State
   isConnected: false,
   lastError: null,
@@ -63,8 +74,15 @@ export function WebSocketProvider({
     currentRoom: null,
     participants: [],
     isJoined: false,
+    teamName: "",
     error: null,
   });
+  const [pressedTeam, setPressedTeam] = useState<string | null>(null);
+  const [disqualifiedTeams, setDisqualifiedTeams] = useState<Set<string>>(
+    new Set()
+  );
+
+  const [gameState, setGameState] = useState<GameState | null>(null);
 
   // Connection State
   const [connectionState, setConnectionState] = useState<ConnectionState>({
@@ -108,7 +126,7 @@ export function WebSocketProvider({
         console.warn("Cannot join room: WebSocket not connected");
         return;
       }
-
+      console.log(socketRef.current);
       currentRoomRef.current = roomId;
       sendMessage({
         type: "join_room",
@@ -157,7 +175,6 @@ export function WebSocketProvider({
             break;
 
           case "list_rooms":
-            console.log("Room list:", message);
             setRooms(message.rooms);
             // Update current room data if we're in one of the rooms
             if (currentRoomRef.current) {
@@ -174,21 +191,17 @@ export function WebSocketProvider({
             break;
 
           case "room_joined":
-            console.log("Room joined:", message);
             if (message.room) {
               setRoomState((prev) => ({
                 ...prev,
                 error: null,
                 isJoined: true,
                 currentRoom: message.room,
+                teamName: message.teamName,
                 participants: [], // Reset participants, will be updated by next participants_list message
               }));
               currentRoomRef.current = message.room.id;
             } else {
-              console.error(
-                "Received room_joined message without room data:",
-                message
-              );
               setRoomState((prev) => ({
                 ...prev,
                 error: "Failed to join room: Invalid response",
@@ -203,7 +216,6 @@ export function WebSocketProvider({
             break;
 
           case "participants_list":
-            console.log("Participants list:", message);
             setRoomState((prev) => ({
               ...prev,
               participants: message.participants,
@@ -230,9 +242,6 @@ export function WebSocketProvider({
             break;
 
           case "quiz_loaded":
-            console.log("Quiz loaded:", message);
-            console.log("Current room matches message roomId:", message.roomId);
-            console.log("Current room:", currentRoomRef.current);
             if (currentRoomRef.current === message.roomId) {
               setRoomState((prev) => {
                 console.log("Previous room state:", prev);
@@ -265,8 +274,43 @@ export function WebSocketProvider({
             break;
 
           case "game_started":
+            setGameState(message.gameState);
+            break;
+
+          case "round_start":
+            setGameState(message.gameState);
+            break;
+
+          case "round_end":
+            setGameState(message.gameState);
+            break;
+
           case "show_question":
-            // Handle game state updates
+            setGameState(message.gameState);
+            break;
+
+          case "game_state_update":
+            console.log("Updating game state:", message.gameState);
+            setGameState(message.gameState);
+            break;
+
+          case "button_pressed":
+            // Update UI to show which team pressed first
+            if (currentRoomRef.current === message.roomId) {
+              setPressedTeam(message.teamName);
+            }
+            break;
+
+          case "admin_judgement":
+            // Handle admin's judgement of the answer
+            if (currentRoomRef.current === message.roomId) {
+              if (!message.correct) {
+                setDisqualifiedTeams(
+                  (prev) => new Set([...prev, message.teamName])
+                );
+                setPressedTeam(null);
+              }
+            }
             break;
         }
       } catch (error) {
@@ -333,6 +377,10 @@ export function WebSocketProvider({
     };
   }, [connect]);
 
+  const isDisqualified = useMemo(() => {
+    return disqualifiedTeams.has(roomState.teamName ?? "");
+  }, [disqualifiedTeams, roomState.teamName]);
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -340,6 +388,9 @@ export function WebSocketProvider({
         ...connectionState,
         rooms,
         socket: socketRef.current,
+        gameState,
+        pressedTeam,
+        isDisqualified,
         sendMessage,
         joinRoom,
         leaveRoom,
@@ -348,15 +399,24 @@ export function WebSocketProvider({
       }}
     >
       <div>
-        <div className="fixed top-4 right-4 flex items-center gap-2 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg z-50">
-          <div
-            className={`w-3 h-3 rounded-full ${
-              connectionState.isConnected ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
-          <span className="text-sm">
-            {connectionState.isConnected ? "Connected" : "Disconnected"}
-          </span>
+        <div className="fixed top-4 px-4 flex items-center justify-between z-50 w-full">
+          {roomState.isJoined ? (
+            <div className="bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg text-sm">
+              Joined {roomState.currentRoom?.name}
+            </div>
+          ) : (
+            <div className="w-1 h-1"></div>
+          )}
+          <div className="flex items-center gap-2 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg">
+            <div
+              className={`w-3 h-3 rounded-full ${
+                connectionState.isConnected ? "bg-green-500" : "bg-red-500"
+              }`}
+            />
+            <span className="text-sm">
+              {connectionState.isConnected ? "Connected" : "Disconnected"}
+            </span>
+          </div>
         </div>
         {children}
       </div>

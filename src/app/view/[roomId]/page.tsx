@@ -20,7 +20,7 @@ export default function ViewRoomPage({
   const roomId = resolvedParams.roomId;
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const controlUrl = `${appUrl}/control/${roomId}`;
+  const controlUrl = `${appUrl}/controller/${roomId}`;
 
   const {
     currentRoom,
@@ -46,6 +46,7 @@ export default function ViewRoomPage({
         type: "register",
         teamName: `Viewer-${Math.random().toString(36).substring(7)}`,
         roomId,
+        role: "viewer",
       });
 
       // Join as viewer
